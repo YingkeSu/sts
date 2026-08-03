@@ -17,7 +17,13 @@
 /tmp/dotnet9/dotnet run --project tests/SeedSearchCoreChecks.csproj
 ```
 
-构建会把 DLL 与 Manifest 安装到本机游戏的：
+默认构建不会安装 Mod，避免开发时意外加载。需要显式安装时使用：
+
+```bash
+/tmp/dotnet9/dotnet build SeedSearchPrototype.csproj --no-restore -p:InstallMod=true
+```
+
+安装目标是本机游戏的：
 
 ```text
 SlayTheSpire2.app/Contents/MacOS/mods/SeedSearchPrototype/

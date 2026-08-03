@@ -61,7 +61,12 @@ public partial class SeedSearchOverlay : CanvasLayer
         ProcessMode = ProcessModeEnum.Always;
         SetProcess(true);
 
-        _shell = new Control { Name = "SeedSearchShell" };
+        _shell = new Control
+        {
+            Name = "SeedSearchShell",
+            // The shell fills the viewport; only its child controls should receive mouse input.
+            MouseFilter = Control.MouseFilterEnum.Ignore
+        };
         _shell.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
         AddChild(_shell);
 

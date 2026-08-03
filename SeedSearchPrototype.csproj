@@ -11,6 +11,8 @@
     <RootNamespace>SeedSearchPrototype</RootNamespace>
     <GodotDisabledSourceGenerators>GodotPluginsInitializer</GodotDisabledSourceGenerators>
     <NoWarn>$(NoWarn);MSB3270</NoWarn>
+    <!-- Keep the mod disabled unless installation is explicitly requested. -->
+    <InstallMod Condition="'$(InstallMod)' == ''">false</InstallMod>
   </PropertyGroup>
 
   <ItemGroup Condition="Exists('$(Sts2DataDir)')">
@@ -37,7 +39,7 @@
     <MakeDir Directories="$(ModsPath)$(MSBuildProjectName)" />
   </Target>
 
-  <Target Name="CopyToModsFolderOnBuild" AfterTargets="Build">
+  <Target Name="CopyToModsFolderOnBuild" AfterTargets="Build" Condition="'$(InstallMod)' == 'true'">
     <Message Text="Installing Seed Search DLL and manifest into $(ModsPath)$(MSBuildProjectName)" Importance="high" />
     <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(ModsPath)$(MSBuildProjectName)" />
     <Copy SourceFiles="$(MSBuildProjectDirectory)/SeedSearchPrototype.json" DestinationFolder="$(ModsPath)$(MSBuildProjectName)" />
