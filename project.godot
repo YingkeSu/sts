@@ -1,0 +1,23 @@
+; Code-only Godot project used to build the STS2 DLL.
+config_version=5
+
+[application]
+
+config/name="Seed Search Prototype"
+config/features=PackedStringArray("4.5", "C#", "Mobile")
+
+[dotnet]
+
+project/assembly_name="SeedSearchPrototype"
+
+[display]
+
+window/size/viewport_width=1920
+window/size/viewport_height=1080
+window/stretch/mode="canvas_items"
+window/stretch/aspect="expand"
+
+[rendering]
+
+renderer/rendering_method="mobile"
+environment/defaults/default_clear_color=Color(0.06, 0.07, 0.09, 1)

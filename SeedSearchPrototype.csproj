@@ -1,0 +1,45 @@
+<Project Sdk="Godot.NET.Sdk/4.5.1">
+  <Import Project="./Sts2PathDiscovery.props" />
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <AssemblyName>SeedSearchPrototype</AssemblyName>
+    <RootNamespace>SeedSearchPrototype</RootNamespace>
+    <GodotDisabledSourceGenerators>GodotPluginsInitializer</GodotDisabledSourceGenerators>
+    <NoWarn>$(NoWarn);MSB3270</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup Condition="Exists('$(Sts2DataDir)')">
+    <Reference Include="0Harmony">
+      <HintPath>$(Sts2DataDir)/0Harmony.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="sts2">
+      <HintPath>$(Sts2DataDir)/sts2.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Alchyr.Sts2.BaseLib" Version="*" PrivateAssets="All" />
+    <Compile Remove="SeedSearchPrototype/**" />
+    <Compile Remove="tests/**" />
+    <None Include="SeedSearchPrototype.json" />
+    <None Include="project.godot" />
+  </ItemGroup>
+
+  <Target Name="CheckDependencyPaths" BeforeTargets="PrepareForBuild">
+    <Error Text="Slay the Spire 2 data not found at '$(Sts2DataDir)'" Condition="'$(Sts2DataDir)' == '' or !Exists('$(Sts2DataDir)')" />
+    <MakeDir Directories="$(ModsPath)$(MSBuildProjectName)" />
+  </Target>
+
+  <Target Name="CopyToModsFolderOnBuild" AfterTargets="Build">
+    <Message Text="Installing Seed Search DLL and manifest into $(ModsPath)$(MSBuildProjectName)" Importance="high" />
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(ModsPath)$(MSBuildProjectName)" />
+    <Copy SourceFiles="$(MSBuildProjectDirectory)/SeedSearchPrototype.json" DestinationFolder="$(ModsPath)$(MSBuildProjectName)" />
+  </Target>
+</Project>
