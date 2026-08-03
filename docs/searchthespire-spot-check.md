@@ -9,7 +9,21 @@
 - `000000000020`
 - `000000000027`
 
-使用 SearchTheSpire Inspect seed 页面加载的 `inspect_seed` WASM 接口逐个生成 preview，四个种子均返回结构化结果。其当前 WASM 返回的结构包含 `neow`、`acts[0].map`、`boss`、`ancient` 等字段。
+使用 SearchTheSpire Inspect seed 页面加载的 `inspect_seed` WASM 接口逐个生成 preview，种子均返回结构化结果。当前 WASM 的相关字段位于 `neow`、`acts[0].map`、`acts[0].boss` 和 `acts[0].ancient`。
+
+## 本次筛选结果抽检
+
+在游戏内选择 `Neow's Bones`，角色、Ascension、地图、Boss 和其他开局条件保持任意，设置为最多 5 个结果、最多 10k 候选。Mod 编译出的 SearchTheSpire spec 是 `neow=5`，实际返回以下 5 个种子：
+
+| seed | SearchTheSpire cursed | SearchTheSpire bonuses | SearchTheSpire Bones grants | Act 1 boss | map nodes |
+| --- | --- | --- | --- | --- | ---: |
+| `000000000003` | Neow's Bones | Pomander / Lead Paperweight | Lava Rock / Nutritious Oyster | Lagavulin Matriarch | 57 |
+| `00000000000G` | Neow's Bones | Scroll Boxes / Small Capsule | Lost Coffer / Silken Tress | Soul Fysh | 63 |
+| `00000000000L` | Neow's Bones | Phial Holster / Neow's Torment | Golden Pearl / Large Capsule | Soul Fysh | 68 |
+| `00000000000N` | Neow's Bones | Precise Scissors / Kaleidoscope | Neow's Sacrifice / Leafy Poultice | Ceremonial Beast | 63 |
+| `00000000000X` | Neow's Bones | Lost Coffer / Kaleidoscope | Nutritious Oyster / Phial Holster | Soul Fysh | 63 |
+
+五个结果的 12 位 beta 种子格式、`Neow's Bones` 主筛选、两项 bonus 和两项 Bones grant 均与 SearchTheSpire preview 相符；这次抽检也验证了筛选器使用的是 SearchTheSpire 的 `neow=N` 语法，而不是 Mod 私有别名。
 
 ## 运行时交叉检查
 

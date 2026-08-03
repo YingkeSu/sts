@@ -644,6 +644,20 @@ public partial class SeedSearchOverlay : CanvasLayer
 
     private void SetBoardSlot(string slotId, string? value)
     {
+        var selectedOption = !string.IsNullOrEmpty(value)
+            ? _boardState.OptionsFor(slotId).FirstOrDefault(option => option.Id == value)
+            : null;
+        if (selectedOption?.OwnerCharacter is { } owner &&
+            _boardState.Character == RunCharacter.Any &&
+            Enum.TryParse<RunCharacter>(owner, true, out var ownerCharacter))
+        {
+            _boardState = _boardState.WithCharacter(ownerCharacter);
+            if (_characterInput != null)
+            {
+                _characterInput.Selected = (int)ownerCharacter;
+            }
+        }
+
         _boardState = _boardState.Select(slotId, string.IsNullOrEmpty(value) ? null : value);
         if (slotId == "neowOffer")
         {
@@ -717,6 +731,12 @@ public partial class SeedSearchOverlay : CanvasLayer
                 _neowDetails.AddChild(row);
             }
         }
+
+        if (SearchTheSpireCatalog.RaresEnabled(_boardState))
+        {
+            _neowDetails.AddChild(MakeLabel("fresh reward rares", 12, Accent));
+            AddAdvancedSlotRow(_neowDetails, SearchTheSpireCatalog.GetSlot("rares"), 0);
+        }
     }
 
     private void RefreshAdvancedDetails()
@@ -728,7 +748,7 @@ public partial class SeedSearchOverlay : CanvasLayer
 
         ClearChildren(_advancedDetails);
         foreach (var cluster in SearchTheSpireCatalog.Slots
-                     .Where(slot => slot.ParentId == null && slot.Cluster != null && slot.Cluster != "neow")
+                     .Where(slot => slot.ParentId == null && slot.Cluster != null && slot.Cluster != "neow" && slot.Id != "rares")
                      .GroupBy(slot => slot.Cluster!, StringComparer.Ordinal))
         {
             _advancedDetails.AddChild(MakeLabel(cluster.Key, 12, Accent));
@@ -760,7 +780,11 @@ public partial class SeedSearchOverlay : CanvasLayer
         {
             button.Text = slot.RequiresAscension > _boardState.Ascension
                 ? $"A{slot.RequiresAscension} only"
-                : "select its parent first";
+                : slot.Id == "rares"
+                    ? "choose a fresh-reward Neow offer"
+                    : slot.Id == "rewardOrdered"
+                        ? "add a reward card first"
+                        : "select its parent first";
             button.Disabled = true;
         }
         else if (view.RequiresCharacter)
@@ -824,6 +848,7 @@ public partial class SeedSearchOverlay : CanvasLayer
         _lastQuery = null;
         _lastResults = Array.Empty<SeedMatch>();
         _boardState = SearchTheSpireBoardState.Empty;
+        _characterInput.Selected = 0;
         _ascensionInput.Selected = 0;
         _neowInputButton.Text = "any Neow offers";
         RefreshNeowDetails();

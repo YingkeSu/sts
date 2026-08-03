@@ -59,8 +59,25 @@ public sealed class SeedSearchEngine
     };
     private static readonly string[] EventIds =
     {
-        "dollroom", "selfhelpbook", "trashheap", "thisorthat", "abyssalbath", "waterloggedscriptorium",
-        "slipperybridge", "brainleech", "punch_off", "symbiote",
+        "aromaofchaos", "byrdonisnest", "densevegetation", "junglemazeadventure", "luminouschoir",
+        "morphicgrove", "sapphireseed", "tabletoftruth", "unrestsite", "wellspring", "whisperinghollow",
+        "woodcarvings", "abyssalbaths", "doorsoflightanddark", "drowningbeacon", "endlessconveyor",
+        "punchoff", "spiralingwhirlpool", "sunkentreasury", "trashheap", "waterloggedscriptorium",
+        "sunkenstatue", "brainleech", "roomfullofcheese", "selfhelpbook", "slipperybridge", "teamaster",
+        "thefutureofpotions", "thelegendsweretrue", "thisorthat",     };
+    private static readonly string[] OvergrowthEvents =
+    {
+        "aromaofchaos", "byrdonisnest", "densevegetation", "junglemazeadventure", "luminouschoir",
+        "morphicgrove", "sapphireseed", "tabletoftruth", "unrestsite", "wellspring", "whisperinghollow",
+        "woodcarvings", "sunkenstatue", "brainleech", "roomfullofcheese", "selfhelpbook", "slipperybridge",
+        "teamaster", "thefutureofpotions", "thelegendsweretrue", "thisorthat",
+    };
+    private static readonly string[] UnderdocksEvents =
+    {
+        "abyssalbaths", "doorsoflightanddark", "drowningbeacon", "endlessconveyor", "punchoff",
+        "spiralingwhirlpool", "sunkentreasury", "trashheap", "waterloggedscriptorium", "sunkenstatue",
+        "brainleech", "roomfullofcheese", "selfhelpbook", "slipperybridge", "teamaster", "thefutureofpotions",
+        "thelegendsweretrue", "thisorthat",
     };
     private static readonly string[] Curses =
     {
@@ -73,9 +90,11 @@ public sealed class SeedSearchEngine
 
     public static int HashCode(string seed) => Sts2ReferenceRng.HashCode(seed);
 
+    public static ulong HashCode64(string seed) => Sts2ReferenceRng.HashCode64(seed);
+
     public static IReadOnlyList<ulong> NextOutputs(int preseed, int count)
     {
-        var state = Sts2ReferenceRng.Create(preseed);
+        var state = Sts2ReferenceRng.Create(unchecked((ulong)(uint)preseed));
         var outputs = new ulong[Math.Max(0, count)];
         for (var index = 0; index < outputs.Length; index++)
         {
@@ -137,7 +156,9 @@ public sealed class SeedSearchEngine
             : rawSeed.Trim().ToUpperInvariant();
         var character = ParseCharacter(context);
 
-        var baseSeed = Sts2ReferenceRng.HashCode(seed);
+        var baseSeed = branch == SeedBranch.PublicBeta
+            ? Sts2ReferenceRng.HashCode64(seed)
+            : unchecked((ulong)(uint)Sts2ReferenceRng.HashCode(seed));
         var mapRng = Sts2ReferenceRng.Create(baseSeed);
         var act1MapId = Sts2ReferenceRng.NextInt(ref mapRng, 2).ToString();
         var eliteCount = 1 + Sts2ReferenceRng.NextInt(ref mapRng, 3);
@@ -169,7 +190,7 @@ public sealed class SeedSearchEngine
             map.Append(display);
         }
 
-        var bossRng = Sts2ReferenceRng.Create(unchecked((int)(uint)(baseSeed + Sts2ReferenceRng.HashCode("up_front"))));
+        var bossRng = Sts2ReferenceRng.Create(baseSeed + StreamHash(branch, "up_front"));
         var bossPool = act1MapId == "0" ? OvergrowthBosses : UnderdocksBosses;
         var boss1Id = bossPool[Sts2ReferenceRng.NextInt(ref bossRng, bossPool.Length)];
         var boss2Id = Act2Bosses[Sts2ReferenceRng.NextInt(ref bossRng, Act2Bosses.Length)];
@@ -182,51 +203,56 @@ public sealed class SeedSearchEngine
 
         var ancient2Id = Act2Ancients[Sts2ReferenceRng.NextInt(ref bossRng, Act2Ancients.Length)];
         var ancient3Id = Act3Ancients[Sts2ReferenceRng.NextInt(ref bossRng, Act3Ancients.Length)];
-        var ancient2OfferId = AncientOfferIds[Sts2ReferenceRng.NextInt(ref bossRng, AncientOfferIds.Length)];
-        var ancient3OfferId = AncientOfferIds[Sts2ReferenceRng.NextInt(ref bossRng, AncientOfferIds.Length)];
+        var ancient2Offers = SearchTheSpireCatalog.AncientOfferIdsFor(ancient2Id, 2);
+        var ancient3Offers = SearchTheSpireCatalog.AncientOfferIdsFor(ancient3Id, 3);
+        var ancient2OfferPool = ancient2Offers.Count == 0 ? AncientOfferIds : ancient2Offers;
+        var ancient3OfferPool = ancient3Offers.Count == 0 ? AncientOfferIds : ancient3Offers;
+        var ancient2OfferId = ancient2OfferPool[Sts2ReferenceRng.NextInt(ref bossRng, ancient2OfferPool.Count)];
+        var ancient3OfferId = ancient3OfferPool[Sts2ReferenceRng.NextInt(ref bossRng, ancient3OfferPool.Count)];
 
-        var neowRng = Sts2ReferenceRng.Create(unchecked((int)(uint)(baseSeed + Sts2ReferenceRng.HashCode("NEOW"))));
+        var neowRng = Sts2ReferenceRng.Create(baseSeed + StreamHash(branch, "NEOW"));
         var cursedOffer = CursedOffers[Sts2ReferenceRng.NextInt(ref neowRng, CursedOffers.Length)];
-        var bonusA = BonusOffers[Sts2ReferenceRng.NextInt(ref neowRng, BonusOffers.Length)];
-        var bonusB = BonusOffers[Sts2ReferenceRng.NextInt(ref neowRng, BonusOffers.Length)];
-        if (bonusB == bonusA)
-        {
-            bonusB = BonusOffers[(Array.IndexOf(BonusOffers, bonusB) + 1) % BonusOffers.Length];
-        }
+        var bonusPool = BuildNeowBonusPool(cursedOffer, ref neowRng);
+        var bonusA = bonusPool[0];
+        var bonusB = bonusPool[1];
 
         var offer = cursedOffer;
         var grantA = "";
         var grantB = "";
         if (offer == "neowsbones")
         {
-            grantA = GrantRelics[Sts2ReferenceRng.NextInt(ref neowRng, GrantRelics.Length)];
-            do
-            {
-                grantB = GrantRelics[Sts2ReferenceRng.NextInt(ref neowRng, GrantRelics.Length)];
-            }
-            while (grantB == grantA);
+            var grantPool = GrantRelics.ToList();
+            var rewardRng = Sts2ReferenceRng.Create(baseSeed + StreamHash(branch, "rewards"));
+            Sts2ReferenceRng.Shuffle(ref rewardRng, grantPool);
+            grantA = grantPool[0];
+            grantB = grantPool[1];
         }
 
         var neowSummary = $"{Humanize(offer)} / {Humanize(bonusA)} / {Humanize(bonusB)}";
         var neow = $"{Humanize(offer)} · {neowSummary}";
         var ancients = $"{Humanize(ancient2Id)} / {Humanize(ancient3Id)}";
+        var cardPool = CardPool(character);
+        var potionPool = PotionPool(character);
+        var shopRelicPool = ShopRelicPool(character);
+        var capsuleRelicPool = CapsuleRelicPool(character);
         var rewardCardValues = Enumerable.Range(0, 3)
-            .Select(_ => Cards[Sts2ReferenceRng.NextInt(ref bossRng, Cards.Length)])
+            .Select(_ => cardPool[Sts2ReferenceRng.NextInt(ref bossRng, cardPool.Count)])
             .ToArray();
         var shopRelicValues = Enumerable.Range(0, 2)
-            .Select(_ => RelicIds[Sts2ReferenceRng.NextInt(ref bossRng, RelicIds.Length)])
+            .Select(_ => shopRelicPool[Sts2ReferenceRng.NextInt(ref bossRng, shopRelicPool.Count)])
             .ToArray();
         var bagRelicValues = Enumerable.Range(0, 2)
-            .Select(_ => RelicIds[Sts2ReferenceRng.NextInt(ref bossRng, RelicIds.Length)])
+            .Select(_ => capsuleRelicPool[Sts2ReferenceRng.NextInt(ref bossRng, capsuleRelicPool.Count)])
             .ToArray();
-        var eventValues = Enumerable.Range(0, 2)
-            .Select(_ => EventIds[Sts2ReferenceRng.NextInt(ref bossRng, EventIds.Length)])
+        var eventPool = act1MapId == "0" ? OvergrowthEvents : UnderdocksEvents;
+        var eventValues = Enumerable.Range(0, 5)
+            .Select(_ => eventPool[Sts2ReferenceRng.NextInt(ref bossRng, eventPool.Length)])
             .ToArray();
         var rewardCards = string.Join('+', rewardCardValues);
         var shopRelics = string.Join('+', shopRelicValues);
         var bagRelics = string.Join('+', bagRelicValues);
         var eventIds = string.Join('+', eventValues);
-        var detailSpec = BuildDetailSpec(offer, grantA, grantB, rewardCardValues, ref neowRng);
+        var detailSpec = BuildDetailSpec(offer, grantA, grantB, rewardCardValues, cardPool, potionPool, capsuleRelicPool, ref neowRng);
 
         return new SeedSnapshot(
             seed,
@@ -257,11 +283,96 @@ public sealed class SeedSearchEngine
             bagRelics,
             eventIds,
             character,
-            detailSpec);
+            detailSpec,
+            ParseAscension(context));
     }
 
     private static string BuildContext(SeedQuery query) =>
         $"{query.GameApiVersion}|{query.Character}|A{query.Ascension}|{query.RunMode}|{query.HiddenSpec}";
+
+    private static ulong StreamHash(SeedBranch branch, string name) =>
+        branch == SeedBranch.PublicBeta
+            ? Sts2ReferenceRng.HashCode64(name)
+            : unchecked((ulong)(uint)Sts2ReferenceRng.HashCode(name));
+
+    private static List<string> BuildNeowBonusPool(
+        string cursedOffer,
+        ref Sts2ReferenceRng.RngState rng)
+    {
+        // The first 13 entries are Neow's always-available positive options.
+        // The remaining six entries are the three mutually exclusive pairs
+        // added by Neow.GenerateInitialOptions.
+        var pool = BonusOffers.Take(13).ToList();
+        if (cursedOffer == "cursedpearl")
+        {
+            pool.Remove("goldenpearl");
+        }
+        else if (cursedOffer == "heftytablet")
+        {
+            pool.Remove("arcanescroll");
+        }
+        else if (cursedOffer == "leafypoultice")
+        {
+            pool.Remove("newleaf");
+        }
+        else if (cursedOffer == "precariousshears")
+        {
+            pool.Remove("precisescissors");
+        }
+        else if (cursedOffer == "neowssacrifice")
+        {
+            pool.Remove("phialholster");
+            pool.Remove("lostcoffer");
+        }
+
+        if (cursedOffer != "largecapsule")
+        {
+            pool.Add(Sts2ReferenceRng.NextInt(ref rng, 2) == 0 ? "lavarock" : "smallcapsule");
+        }
+
+        pool.Add(Sts2ReferenceRng.NextInt(ref rng, 2) == 0 ? "nutritiousoyster" : "stonehumidifier");
+        pool.Add(Sts2ReferenceRng.NextInt(ref rng, 2) == 0 ? "neowstalisman" : "pomander");
+        Sts2ReferenceRng.Shuffle(ref rng, pool);
+        return pool.Take(2).ToList();
+    }
+
+    private static IReadOnlyList<string> CardPool(RunCharacter character)
+    {
+        var versioned = character != RunCharacter.Any && SearchTheSpirePoolData.CardPools.TryGetValue(character, out var own)
+            ? own
+            : SearchTheSpirePoolData.CardPools.Values.SelectMany(values => values);
+        return versioned.Concat(Cards).Distinct(StringComparer.Ordinal).ToArray();
+    }
+
+    private static IReadOnlyList<string> PotionPool(RunCharacter character)
+    {
+        var own = character != RunCharacter.Any && SearchTheSpirePoolData.CharacterPotions.TryGetValue(character, out var values)
+            ? values
+            : Array.Empty<string>();
+        return own.Concat(SearchTheSpirePoolData.SharedPotions).Concat(Potions)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+    }
+
+    private static IReadOnlyList<string> ShopRelicPool(RunCharacter character)
+    {
+        var own = character != RunCharacter.Any && SearchTheSpirePoolData.CharacterShopRelics.TryGetValue(character, out var values)
+            ? values
+            : Array.Empty<string>();
+        return SearchTheSpirePoolData.SharedShopRelics.Concat(own).Concat(RelicIds)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+    }
+
+    private static IReadOnlyList<string> CapsuleRelicPool(RunCharacter character)
+    {
+        var own = character != RunCharacter.Any && SearchTheSpirePoolData.CharacterCapsuleRelics.TryGetValue(character, out var values)
+            ? values
+            : Array.Empty<string>();
+        return SearchTheSpirePoolData.SharedCapsuleRelics.Concat(own).Concat(RelicIds)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+    }
 
     private static RunCharacter ParseCharacter(string context)
     {
@@ -272,29 +383,46 @@ public sealed class SeedSearchEngine
             : RunCharacter.Any;
     }
 
+    private static int ParseAscension(string context)
+    {
+        var token = context.Split('|', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .FirstOrDefault(value => value.StartsWith('A'));
+        return token != null && int.TryParse(token[1..], out var ascension)
+            ? Math.Clamp(ascension, 0, 20)
+            : 0;
+    }
+
     private static string BuildDetailSpec(
         string offer,
         string grantA,
         string grantB,
         IReadOnlyList<string> rewardCards,
+        IReadOnlyList<string> cards,
+        IReadOnlyList<string> potions,
+        IReadOnlyList<string> relics,
         ref Sts2ReferenceRng.RngState neowRng)
     {
         var details = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
-            ["reward1"] = rewardCards[0],
-            ["reward2"] = rewardCards[1],
-            ["reward3"] = rewardCards[2],
+            ["reward1_card"] = rewardCards[0],
+            ["reward2_card"] = rewardCards[1],
+            ["reward3_card"] = rewardCards[2],
         };
 
         if (offer == "neowsbones")
         {
             details["bones_curse"] = TakeValue(Curses, ref neowRng);
-            AddOfferDetails(details, grantA, "bones_", ref neowRng);
-            AddOfferDetails(details, grantB, "bones_", ref neowRng);
+            AddOfferDetails(details, grantA, "bones_", cards, potions, relics, ref neowRng);
+            AddOfferDetails(details, grantB, "bones_", cards, potions, relics, ref neowRng);
+            var capsulePulls = CapsulePulls(grantA) + CapsulePulls(grantB);
+            if (capsulePulls > 0)
+            {
+                details["bones_capsule_set"] = TakeDistinct(relics, capsulePulls, ref neowRng);
+            }
         }
         else
         {
-            AddOfferDetails(details, offer, string.Empty, ref neowRng);
+            AddOfferDetails(details, offer, string.Empty, cards, potions, relics, ref neowRng);
         }
 
         return string.Join(',', details.OrderBy(pair => pair.Key, StringComparer.Ordinal)
@@ -305,6 +433,9 @@ public sealed class SeedSearchEngine
         IDictionary<string, string> details,
         string offer,
         string prefix,
+        IReadOnlyList<string> cards,
+        IReadOnlyList<string> potions,
+        IReadOnlyList<string> relics,
         ref Sts2ReferenceRng.RngState rng)
     {
         if (string.IsNullOrWhiteSpace(offer))
@@ -315,46 +446,63 @@ public sealed class SeedSearchEngine
         switch (offer)
         {
             case "heftytablet":
-                details[$"{prefix}tablet_card"] = TakeValue(Cards, ref rng);
+                details[$"{prefix}tablet_card"] = TakeValue(cards, ref rng);
                 break;
             case "arcanescroll":
-                details[$"{prefix}arcane_card"] = TakeValue(Cards, ref rng);
+                details[$"{prefix}arcane_card"] = TakeValue(cards, ref rng);
                 break;
             case "leadpaperweight":
-                details[$"{prefix}paperweight_card"] = TakeValue(Cards, ref rng);
+                details[$"{prefix}paperweight_card"] = TakeValue(cards, ref rng);
                 break;
             case "lostcoffer":
-                details[$"{prefix}coffer_card"] = TakeValue(Cards, ref rng);
-                details[$"{prefix}coffer_potion"] = TakeValue(Potions, ref rng);
+                details[$"{prefix}coffer_card"] = TakeValue(cards, ref rng);
+                details[$"{prefix}coffer_potion"] = TakeValue(potions, ref rng);
                 break;
             case "largecapsule":
+                if (prefix == "bones_")
+                {
+                    break;
+                }
+
                 details[prefix.Length == 0 ? "large_relic" : "bones_capsule_set"] =
-                    TakeDistinct(RelicIds, prefix.Length == 0 ? 2 : 3, ref rng);
+                    TakeDistinct(relics, prefix.Length == 0 ? 2 : 3, ref rng);
                 break;
             case "smallcapsule":
+                if (prefix == "bones_")
+                {
+                    break;
+                }
+
                 details[prefix.Length == 0 ? "capsule_relic" : "bones_capsule_set"] =
-                    TakeDistinct(RelicIds, prefix.Length == 0 ? 1 : 3, ref rng);
+                    TakeDistinct(relics, prefix.Length == 0 ? 1 : 3, ref rng);
                 break;
             case "kaleidoscope":
-                details[$"{prefix}kaleido_distinct"] = TakeDistinct(Cards, 2, ref rng);
+                details[$"{prefix}kaleido_distinct"] = TakeDistinct(cards, 2, ref rng);
                 break;
             case "newleaf":
-                details[$"{prefix}newleaf_card"] = TakeValue(Cards, ref rng);
+                details[$"{prefix}newleaf_card"] = TakeValue(cards, ref rng);
                 break;
             case "scrollboxes":
-                details[$"{prefix}scrollbox_contains"] = TakeDistinct(Cards, 3, ref rng);
+                details[$"{prefix}scrollbox_contains"] = TakeDistinct(cards, 3, ref rng);
                 break;
             case "leafypoultice":
-                details[$"{prefix}poultice_set"] = TakeDistinct(Cards, 2, ref rng);
+                details[$"{prefix}poultice_set"] = TakeDistinct(cards, 2, ref rng);
                 break;
             case "phialholster":
-                details[$"{prefix}phial_potion"] = TakeDistinct(Potions, 2, ref rng);
+                details[$"{prefix}phial_potion"] = TakeDistinct(potions, 2, ref rng);
                 break;
         }
     }
 
     private static string TakeValue(IReadOnlyList<string> values, ref Sts2ReferenceRng.RngState rng) =>
         values[Sts2ReferenceRng.NextInt(ref rng, values.Count)];
+
+    private static int CapsulePulls(string offer) => offer switch
+    {
+        "smallcapsule" => 1,
+        "largecapsule" => 2,
+        _ => 0,
+    };
 
     private static string TakeDistinct(
         IReadOnlyList<string> values,
@@ -408,8 +556,25 @@ public sealed class SeedSearchEngine
             return true;
         }
 
+        var orderedRewards = false;
         foreach (var fragment in spec.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
+            if (fragment.Equals("reward_ordered", StringComparison.OrdinalIgnoreCase))
+            {
+                orderedRewards = true;
+                continue;
+            }
+
+            if (fragment.Equals("scarcity", StringComparison.OrdinalIgnoreCase))
+            {
+                if (snapshot.Ascension < 7)
+                {
+                    return false;
+                }
+
+                continue;
+            }
+
             var separator = fragment.IndexOf('=');
             if (separator <= 0 || separator == fragment.Length - 1)
             {
@@ -418,7 +583,7 @@ public sealed class SeedSearchEngine
 
             var key = fragment[..separator];
             var expected = fragment[(separator + 1)..];
-            if (!MatchesSpecFragment(key, expected, snapshot))
+            if (!MatchesSpecFragment(key, expected, snapshot, orderedRewards))
             {
                 return false;
             }
@@ -465,7 +630,7 @@ public sealed class SeedSearchEngine
             : actual.Equals(expected, StringComparison.OrdinalIgnoreCase);
     }
 
-    private static bool MatchesSpecFragment(string key, string expected, SeedSnapshot snapshot)
+    private static bool MatchesSpecFragment(string key, string expected, SeedSnapshot snapshot, bool orderedRewards = false)
     {
         return key switch
         {
@@ -486,7 +651,12 @@ public sealed class SeedSearchEngine
             "ancient2_offers" or "ancient2_offers_if" => snapshot.Ancient2OfferId.Equals(expected, StringComparison.OrdinalIgnoreCase),
             "ancient3_offers" or "ancient3_offers_if" => snapshot.Ancient3OfferId.Equals(expected, StringComparison.OrdinalIgnoreCase),
             "bones_relic" => ContainsMultiset($"{snapshot.NeowGrantAId}+{snapshot.NeowGrantBId}", expected),
-            "reward_cards" => ContainsMultiset(snapshot.RewardCardIds, expected),
+            "reward_cards" => orderedRewards
+                ? ContainsSequence(snapshot.RewardCardIds, expected)
+                : ContainsMultiset(snapshot.RewardCardIds, expected),
+            "reward_within" or "shop_within" or "bag_within" or "event_within" => int.TryParse(expected, out var window) && window > 0,
+            "rares" => int.TryParse(expected, out var rares) && rares is >= 1 and <= 6,
+            "scarcity" => snapshot.Ascension >= 7,
             "shop_relic" => ContainsMultiset(snapshot.ShopRelicIds, expected),
             "bag_relic" => ContainsMultiset(snapshot.BagRelicIds, expected),
             "event_in1" or "event_in2" or "event_in3" or "event_in4" or "event_in5" => ContainsMultiset(snapshot.EventIds, expected),
@@ -496,9 +666,31 @@ public sealed class SeedSearchEngine
             "tablet_card" or "poultice_set" or "large_relic" or "paperweight_card" or "arcane_card" or
             "coffer_card" or "coffer_potion" or "kaleido_distinct" or "newleaf_card" or "scrollbox_contains" or
             "phial_potion" or "capsule_relic" => MatchesDetail(snapshot, key, expected),
-            "reward1" or "reward2" or "reward3" => MatchesDetail(snapshot, key, expected, false),
+            "reward1" or "reward2" or "reward3" or "reward1_card" or "reward2_card" or "reward3_card" =>
+                MatchesDetail(snapshot, key, expected, false) ||
+                MatchesDetail(snapshot, key.Replace("_card", string.Empty, StringComparison.Ordinal), expected, false),
             _ => false,
         };
+    }
+
+    private static bool ContainsSequence(string actual, string expected)
+    {
+        var actualValues = actual.Split('+', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var expectedValues = expected.Split('+', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (expectedValues.Length == 0 || expectedValues.Length > actualValues.Length)
+        {
+            return false;
+        }
+
+        for (var start = 0; start <= actualValues.Length - expectedValues.Length; start++)
+        {
+            if (expectedValues.Select((value, index) => actualValues[start + index].Equals(value, StringComparison.OrdinalIgnoreCase)).All(value => value))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static string Humanize(string id) => string.Join(' ', id.Split('_', StringSplitOptions.RemoveEmptyEntries)
@@ -545,10 +737,85 @@ public sealed class SeedSearchEngine
             return unchecked((int)(first + second * 1566083941u));
         }
 
-        public static RngState Create(int preseed)
+        public static ulong HashCode64(string value)
         {
-            var seed = unchecked((ulong)(uint)preseed);
+            var bytes = Encoding.UTF8.GetBytes(value);
+            var offset = 0;
+            var length = bytes.Length;
+            ulong hash;
+
+            if (length >= 32)
+            {
+                var v1 = unchecked(Prime5 + Prime1 + Prime2);
+                var v2 = unchecked(Prime5 + Prime2);
+                var v3 = Prime5;
+                var v4 = unchecked(Prime5 - Prime1);
+                var limit = length - 32;
+                while (offset <= limit)
+                {
+                    v1 = Round(v1, ReadUInt64(bytes, offset));
+                    offset += 8;
+                    v2 = Round(v2, ReadUInt64(bytes, offset));
+                    offset += 8;
+                    v3 = Round(v3, ReadUInt64(bytes, offset));
+                    offset += 8;
+                    v4 = Round(v4, ReadUInt64(bytes, offset));
+                    offset += 8;
+                }
+
+                hash = RotateLeft(v1, 1) + RotateLeft(v2, 7) + RotateLeft(v3, 12) + RotateLeft(v4, 18);
+                hash = MergeRound(hash, v1);
+                hash = MergeRound(hash, v2);
+                hash = MergeRound(hash, v3);
+                hash = MergeRound(hash, v4);
+            }
+            else
+            {
+                hash = Prime5;
+            }
+
+            hash += (ulong)length;
+            while (offset + 8 <= length)
+            {
+                hash ^= Round(0, ReadUInt64(bytes, offset));
+                hash = RotateLeft(hash, 27) * Prime1 + Prime4;
+                offset += 8;
+            }
+
+            if (offset + 4 <= length)
+            {
+                hash ^= ReadUInt32(bytes, offset) * Prime1;
+                hash = RotateLeft(hash, 23) * Prime2 + Prime3;
+                offset += 4;
+            }
+
+            while (offset < length)
+            {
+                hash ^= bytes[offset] * Prime5;
+                hash = RotateLeft(hash, 11) * Prime1;
+                offset++;
+            }
+
+            hash ^= hash >> 33;
+            hash *= Prime2;
+            hash ^= hash >> 29;
+            hash *= Prime3;
+            return hash ^ (hash >> 32);
+        }
+
+        public static RngState Create(ulong preseed)
+        {
+            var seed = preseed;
             return new RngState(NextState(ref seed), NextState(ref seed), NextState(ref seed), NextState(ref seed));
+        }
+
+        public static void Shuffle(ref RngState state, IList<string> values)
+        {
+            for (var index = values.Count - 1; index > 0; index--)
+            {
+                var other = NextInt(ref state, index + 1);
+                (values[index], values[other]) = (values[other], values[index]);
+            }
         }
 
         public static int NextInt(ref RngState state, int max)
@@ -570,6 +837,38 @@ public sealed class SeedSearchEngine
             value = unchecked((value ^ (value >> 27)) * 10723151780598845931UL);
             return value ^ (value >> 31);
         }
+
+        private static ulong Round(ulong accumulator, ulong input) =>
+            RotateLeft(accumulator + input * Prime2, 31) * Prime1;
+
+        private static ulong MergeRound(ulong accumulator, ulong value) =>
+            (accumulator ^ Round(0, value)) * Prime1 + Prime4;
+
+        private static ulong ReadUInt64(byte[] bytes, int offset)
+        {
+            ulong value = 0;
+            for (var index = 0; index < 8; index++)
+            {
+                value |= (ulong)bytes[offset + index] << (index * 8);
+            }
+
+            return value;
+        }
+
+        private static uint ReadUInt32(byte[] bytes, int offset) =>
+            (uint)(bytes[offset]
+                | (bytes[offset + 1] << 8)
+                | (bytes[offset + 2] << 16)
+                | (bytes[offset + 3] << 24));
+
+        private static ulong RotateLeft(ulong value, int bits) =>
+            (value << bits) | (value >> (64 - bits));
+
+        private const ulong Prime1 = 11400714785074694791UL;
+        private const ulong Prime2 = 14029467366897019727UL;
+        private const ulong Prime3 = 1609587929392839161UL;
+        private const ulong Prime4 = 9650029242287828579UL;
+        private const ulong Prime5 = 2870177450012600261UL;
 
         public static ulong Next(ref RngState state)
         {

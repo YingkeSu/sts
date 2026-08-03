@@ -75,7 +75,8 @@ public sealed record SeedSnapshot(
     string BagRelicIds = "",
     string EventIds = "",
     RunCharacter Character = RunCharacter.Any,
-    string DetailSpec = "");
+    string DetailSpec = "",
+    int Ascension = 0);
 
 public sealed record SeedMatch(string Seed, SeedSnapshot Snapshot);
 
