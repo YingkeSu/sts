@@ -25,6 +25,7 @@ public partial class SeedSearchOverlay : CanvasLayer
     private Control _popularPage = null!;
     private Control _savedPage = null!;
     private VBoxContainer _resultsList = null!;
+    private VBoxContainer _popularList = null!;
     private VBoxContainer _savedList = null!;
     private Label _statusLabel = null!;
     private Label _progressLabel = null!;
@@ -200,7 +201,7 @@ public partial class SeedSearchOverlay : CanvasLayer
         tabs.AddChild(savedButton);
 
         _boardPage = BuildBoardPage();
-        _popularPage = BuildInfoPage("Popular this week", "nothing popular yet this week. Searches will appear here after more local searches are saved.");
+        _popularPage = BuildPopularPage();
         _savedPage = BuildSavedPage();
         page.AddChild(_boardPage);
         page.AddChild(_popularPage);
@@ -438,6 +439,26 @@ public partial class SeedSearchOverlay : CanvasLayer
         return panel;
     }
 
+    private Control BuildPopularPage()
+    {
+        var panel = new PanelContainer();
+        panel.AddThemeStyleboxOverride("panel", MakeStyle(Surface, Border, 8));
+        var margin = MakeMargin(24);
+        panel.AddChild(margin);
+        var content = new VBoxContainer();
+        content.AddThemeConstantOverride("separation", 12);
+        margin.AddChild(content);
+        content.AddChild(MakeLabel("Popular this week", 20, Text));
+        content.AddChild(MakeLabel(
+            "popular searches are ranked from searches saved in this game session and can be reopened directly.",
+            14,
+            MutedText));
+        _popularList = new VBoxContainer();
+        _popularList.AddThemeConstantOverride("separation", 8);
+        content.AddChild(_popularList);
+        return panel;
+    }
+
     private Control BuildSavedPage()
     {
         var panel = new PanelContainer();
@@ -661,11 +682,7 @@ public partial class SeedSearchOverlay : CanvasLayer
         _boardState = _boardState.Select(slotId, string.IsNullOrEmpty(value) ? null : value);
         if (slotId == "neowOffer")
         {
-            var selected = _boardState.Selected(slotId);
-            _neowInputButton.Text = selected == null
-                ? "any Neow offers"
-                : SearchTheSpireCatalog.OptionsFor(SearchTheSpireCatalog.GetSlot(slotId), _boardState)
-                    .FirstOrDefault(option => option.Id == selected)?.Title ?? selected;
+            RefreshNeowInputText();
         }
 
         RefreshNeowDetails();
@@ -824,6 +841,7 @@ public partial class SeedSearchOverlay : CanvasLayer
         _savedSearches.Add(new SavedSearch(_lastQuery, _lastResults.ToList()));
         PersistSavedSearches();
         RebuildSavedList();
+        RebuildPopularList();
         SetStatus("saved this search", Accent);
     }
 
@@ -858,7 +876,24 @@ public partial class SeedSearchOverlay : CanvasLayer
         _resultCountLabel.Text = "0 matches";
         _progressLabel.Text = "ready";
         ClearChildren(_resultsList);
+        _stopAfterInput.Selected = 2;
+        _maxCandidatesInput.Selected = 2;
+        _advancedInput.Text = "0";
+        _eliteInput.Selected = 0;
+        _shopInput.Selected = 0;
+        _restInput.Selected = 0;
+        _ancientInput.Selected = 0;
+        _bossInput.Selected = 0;
         SetStatus("results show up here. select some filters, then hit Search.", MutedText);
+    }
+
+    private void RefreshNeowInputText()
+    {
+        var selected = _boardState.Selected("neowOffer");
+        _neowInputButton.Text = selected == null
+            ? "any Neow offers"
+            : SearchTheSpireCatalog.OptionsFor(SearchTheSpireCatalog.GetSlot("neowOffer"), _boardState)
+                .FirstOrDefault(option => option.Id == selected)?.Title ?? selected;
     }
 
     private void RebuildSavedList()
@@ -876,12 +911,7 @@ public partial class SeedSearchOverlay : CanvasLayer
             row.AddThemeConstantOverride("separation", 10);
             row.AddChild(MakeLabel($"{saved.Results.Count} matches · {saved.Query.NeowFilter} · offset {saved.Query.StartOffset}", 14, Text));
             var open = MakeButton("open", "Open saved results", 72);
-            open.Pressed += () =>
-            {
-                _lastQuery = saved.Query;
-                ApplyResults(saved.Results);
-                ShowBoard();
-            };
+            open.Pressed += () => OpenSavedSearch(saved);
             row.AddChild(open);
             _savedList.AddChild(row);
         }
@@ -894,7 +924,123 @@ public partial class SeedSearchOverlay : CanvasLayer
 
     private void ShowPopular()
     {
+        RebuildPopularList();
         ShowPage(_popularPage);
+    }
+
+    private void RebuildPopularList()
+    {
+        if (_popularList == null)
+        {
+            return;
+        }
+
+        ClearChildren(_popularList);
+        var groups = _savedSearches
+            .GroupBy(saved => SearchKey(saved.Query), StringComparer.Ordinal)
+            .OrderByDescending(group => group.Count())
+            .ThenBy(group => group.Key, StringComparer.Ordinal)
+            .Take(10)
+            .ToArray();
+        if (groups.Length == 0)
+        {
+            _popularList.AddChild(MakeLabel("nothing popular yet. save a search first.", 13, MutedText));
+            return;
+        }
+
+        foreach (var group in groups)
+        {
+            var first = group.First();
+            var row = new HBoxContainer();
+            row.AddThemeConstantOverride("separation", 10);
+            var label = MakeLabel(
+                $"{group.Count()} {(group.Count() == 1 ? "search" : "searches")} · {DescribeQuery(first.Query)}",
+                14,
+                Text);
+            label.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
+            label.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+            row.AddChild(label);
+            var open = MakeButton("open", "Open this popular search", 72);
+            open.Pressed += () => OpenSavedSearch(first);
+            row.AddChild(open);
+            _popularList.AddChild(row);
+        }
+    }
+
+    private static string SearchKey(SeedQuery query) =>
+        JsonSerializer.Serialize(query);
+
+    private static string DescribeQuery(SeedQuery query)
+    {
+        var parts = new List<string>();
+        if (query.Character != RunCharacter.Any)
+        {
+            parts.Add(query.Character.ToString());
+        }
+
+        if (!string.IsNullOrWhiteSpace(query.HiddenSpec))
+        {
+            parts.Add(query.HiddenSpec);
+        }
+        else
+        {
+            parts.Add("any run start");
+        }
+
+        return string.Join(" · ", parts);
+    }
+
+    private void OpenSavedSearch(SavedSearch saved)
+    {
+        _lastQuery = saved.Query;
+        RestoreQueryControls(saved.Query);
+        ApplyResults(saved.Results);
+        ShowBoard();
+    }
+
+    private void RestoreQueryControls(SeedQuery query)
+    {
+        _boardState = SearchTheSpireBoardState.FromSpec(query.Character, query.Ascension, query.HiddenSpec);
+        _branchInput.Selected = 0;
+        _characterInput.Selected = Math.Clamp((int)query.Character, 0, _characterInput.ItemCount - 1);
+        _ascensionInput.Selected = Math.Clamp(query.Ascension / 5, 0, _ascensionInput.ItemCount - 1);
+        _runModeInput.Selected = Math.Clamp((int)query.RunMode, 0, _runModeInput.ItemCount - 1);
+        _stopAfterInput.Selected = query.StopAfter switch
+        {
+            <= 5 => 0,
+            <= 10 => 1,
+            <= 20 => 2,
+            _ => 3,
+        };
+        _maxCandidatesInput.Selected = query.MaxCandidates switch
+        {
+            <= 10_000 => 0,
+            <= 50_000 => 1,
+            <= 250_000 => 2,
+            _ => 3,
+        };
+        _eliteInput.Selected = Math.Clamp(query.MinimumElites, 0, _eliteInput.ItemCount - 1);
+        _shopInput.Selected = Math.Clamp(query.MinimumShops, 0, _shopInput.ItemCount - 1);
+        _restInput.Selected = Math.Clamp(query.MinimumRestSites, 0, _restInput.ItemCount - 1);
+        _ancientInput.Selected = FindOptionIndex(_ancientInput, query.AncientFilter);
+        _bossInput.Selected = FindOptionIndex(_bossInput, query.BossFilter);
+        _advancedInput.Text = query.StartOffset.ToString(CultureInfo.InvariantCulture);
+        RefreshNeowInputText();
+        RefreshNeowDetails();
+        RefreshAdvancedDetails();
+    }
+
+    private static int FindOptionIndex(OptionButton input, string value)
+    {
+        for (var index = 0; index < input.ItemCount; index++)
+        {
+            if (string.Equals(input.GetItemText(index), value, StringComparison.OrdinalIgnoreCase))
+            {
+                return index;
+            }
+        }
+
+        return 0;
     }
 
     private void ShowSaved()
@@ -930,8 +1076,10 @@ public partial class SeedSearchOverlay : CanvasLayer
             MinimumElites: _eliteInput.Selected,
             MinimumShops: _shopInput.Selected,
             MinimumRestSites: _restInput.Selected,
-            NeowFilter: _boardState.Selected("neowOffer") == null
-                ? NeowFilter.Any
+            NeowFilter: _boardState.Selected("neowOffer") is { } neowOffer
+                ? SearchTheSpireCatalog.CursedOffers.Contains(neowOffer, StringComparer.Ordinal)
+                    ? NeowFilter.HasCurse
+                    : NeowFilter.HasBlessing
                 : NeowFilter.Any,
             AncientFilter: _ancientInput.GetItemText(_ancientInput.Selected),
             BossFilter: _bossInput.GetItemText(_bossInput.Selected),

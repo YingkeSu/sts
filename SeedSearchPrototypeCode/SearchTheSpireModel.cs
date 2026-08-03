@@ -54,6 +54,201 @@ public sealed class SearchTheSpireBoardState
     public static SearchTheSpireBoardState Empty { get; } =
         new(RunCharacter.Any, 0, new Dictionary<string, string?>());
 
+    /// <summary>
+    /// Restore the board portion of a saved SearchTheSpire query. The public
+    /// query keeps character/ascension beside the comma-separated extended
+    /// spec, so callers pass those two values explicitly and this method only
+    /// decodes the board selections.
+    /// </summary>
+    public static SearchTheSpireBoardState FromSpec(
+        RunCharacter character,
+        int ascension,
+        string? spec)
+    {
+        var values = new Dictionary<string, string?>(StringComparer.Ordinal);
+        var counters = new Dictionary<string, int>(StringComparer.Ordinal);
+
+        void Put(string slotId, string? value)
+        {
+            if (!SearchTheSpireCatalog.ContainsSlot(slotId) || string.IsNullOrWhiteSpace(value))
+            {
+                return;
+            }
+
+            values[slotId] = value.Trim().ToLowerInvariant();
+        }
+
+        void PutGroup(string prefix, string raw, int count)
+        {
+            var parts = raw.Split('+', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            for (var index = 0; index < parts.Length && index < count; index++)
+            {
+                Put($"{prefix}{index + 1}", parts[index]);
+            }
+        }
+
+        void PutRepeated(string prefix, string value, int limit)
+        {
+            var index = counters.TryGetValue(prefix, out var current) ? current : 0;
+            if (index < limit)
+            {
+                Put($"{prefix}{index + 1}", value);
+                counters[prefix] = index + 1;
+            }
+        }
+
+        void PutNamedGroup(IReadOnlyList<string> slotIds, string raw)
+        {
+            var parts = raw.Split('+', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            for (var index = 0; index < parts.Length && index < slotIds.Count; index++)
+            {
+                Put(slotIds[index], parts[index]);
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(spec))
+        {
+            foreach (var fragment in spec.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                var separator = fragment.IndexOf('=');
+                var key = (separator >= 0 ? fragment[..separator] : fragment).Trim().ToLowerInvariant();
+                var value = separator >= 0 ? fragment[(separator + 1)..].Trim() : string.Empty;
+                if (key.Length == 0)
+                {
+                    continue;
+                }
+
+                switch (key)
+                {
+                    case "char":
+                    case "scarcity":
+                        // These are represented by SeedQuery.Character and
+                        // SeedQuery.Ascension, not by a child picker.
+                        break;
+                    case "neow":
+                        if (int.TryParse(value, out var cursedIndex) &&
+                            cursedIndex >= 0 && cursedIndex < SearchTheSpireCatalog.CursedOffers.Length)
+                        {
+                            Put("neowOffer", SearchTheSpireCatalog.CursedOffers[cursedIndex]);
+                        }
+
+                        break;
+                    case "bonus":
+                        Put("neowOffer", value);
+                        break;
+                    case "bones_relic":
+                        PutNamedGroup(new[] { "bonesGrantA", "bonesGrantB" }, value);
+                        break;
+                    case "reward_within":
+                    case "shop_within":
+                    case "bag_within":
+                    case "event_within":
+                        Put(ToBoardSlotId(key), value);
+                        break;
+                    case "reward_cards":
+                        PutGroup("rewardPick", value, SearchTheSpireCatalog.RewardPickIds.Count);
+                        break;
+                    case "reward_ordered":
+                        Put("rewardOrdered", "true");
+                        break;
+                    case "bones_capsule_set":
+                        PutGroup("bonesCapsuleSet", value, 3);
+                        break;
+                    case "bones_kaleido_distinct":
+                        PutGroup("bonesKaleidoCard", value, 2);
+                        break;
+                    case "bones_scrollbox_contains":
+                        PutGroup("bonesScrollboxCard", value, 3);
+                        break;
+                    case "bones_poultice_set":
+                        PutGroup("bonesPoulticeCard", value, 2);
+                        break;
+                    case "large_relic":
+                        PutNamedGroup(new[] { "largeRelicA", "largeRelicB" }, value);
+                        break;
+                    case "poultice_set":
+                        PutGroup("poulticeCard", value, 2);
+                        break;
+                    case "kaleido_distinct":
+                        PutGroup("kaleidoCard", value, 2);
+                        break;
+                    case "scrollbox_contains":
+                        PutGroup("scrollboxCard", value, 3);
+                        break;
+                    case "phial_potion":
+                        PutNamedGroup(new[] { "phialPotionA", "phialPotionB" }, value);
+                        break;
+                    case "shop_relic":
+                        PutRepeated("shopPick", value, SearchTheSpireCatalog.ShopPickIds.Count);
+                        break;
+                    case "bag_relic":
+                        PutRepeated("bagPick", value, SearchTheSpireCatalog.BagPickIds.Count);
+                        break;
+                    default:
+                        if (key.StartsWith("event_in", StringComparison.Ordinal) &&
+                            int.TryParse(key["event_in".Length..], out var eventWindow))
+                        {
+                            Put("eventWithin", eventWindow.ToString());
+                            PutRepeated("eventPick", value, SearchTheSpireCatalog.EventPickIds.Count);
+                        }
+                        else if (key.StartsWith("reward", StringComparison.Ordinal) && key.EndsWith("_card", StringComparison.Ordinal) &&
+                                 int.TryParse(key["reward".Length..^"_card".Length], out var rewardIndex) &&
+                                 rewardIndex is >= 1 and <= 3)
+                        {
+                            Put($"reward{rewardIndex}", value);
+                        }
+                        else if (key is "ancient2_offers" or "ancient2_offers_if")
+                        {
+                            Put("ancient2Offers", value);
+                        }
+                        else if (key is "ancient3_offers" or "ancient3_offers_if")
+                        {
+                            Put("ancient3Offers", value);
+                        }
+                        else if (key is "tablet_card" or "arcane_card" or "coffer_card" or "coffer_potion" or
+                                 "newleaf_card" or "paperweight_card" or "bones_tablet_card" or "bones_arcane_card" or
+                                 "bones_coffer_card" or "bones_coffer_potion" or "bones_newleaf_card" or "bones_paperweight_card" or
+                                 "bones_curse" or "capsule_relic")
+                        {
+                            Put(ToBoardSlotId(key), value);
+                        }
+                        else if (SearchTheSpireCatalog.ContainsSlot(key))
+                        {
+                            Put(key, value);
+                        }
+
+                        break;
+                }
+            }
+        }
+
+        return new SearchTheSpireBoardState(character, ascension, values);
+    }
+
+    private static string ToBoardSlotId(string specKey) => specKey switch
+    {
+        "reward_within" => "rewardWithin",
+        "shop_within" => "shopWithin",
+        "bag_within" => "bagWithin",
+        "event_within" => "eventWithin",
+        "large_relic" => "largeRelicA",
+        "tablet_card" => "tabletCard",
+        "arcane_card" => "arcaneCard",
+        "coffer_card" => "cofferCard",
+        "coffer_potion" => "cofferPotion",
+        "newleaf_card" => "newleafCard",
+        "paperweight_card" => "paperweightCard",
+        "bones_tablet_card" => "bonesTabletCard",
+        "bones_arcane_card" => "bonesArcaneCard",
+        "bones_coffer_card" => "bonesCofferCard",
+        "bones_coffer_potion" => "bonesCofferPotion",
+        "bones_newleaf_card" => "bonesNewleafCard",
+        "bones_paperweight_card" => "bonesPaperweightCard",
+        "bones_curse" => "bonesCurse",
+        "capsule_relic" => "capsuleRelic",
+        _ => specKey,
+    };
+
     public RunCharacter Character { get; }
 
     public int Ascension { get; }
@@ -61,8 +256,34 @@ public sealed class SearchTheSpireBoardState
     public string? Selected(string slotId) =>
         _values.TryGetValue(slotId, out var value) ? value : null;
 
-    public SearchTheSpireBoardState WithCharacter(RunCharacter character) =>
-        new(character, Ascension, new Dictionary<string, string?>(_values));
+    public SearchTheSpireBoardState WithCharacter(RunCharacter character)
+    {
+        var nextValues = new Dictionary<string, string?>(_values);
+        var next = new SearchTheSpireBoardState(character, Ascension, nextValues);
+
+        foreach (var slot in SearchTheSpireCatalog.Slots.Where(SearchTheSpireCatalog.IsCharacterScoped))
+        {
+            if (!nextValues.TryGetValue(slot.Id, out var value) || string.IsNullOrWhiteSpace(value))
+            {
+                continue;
+            }
+
+            // A character-specific value is not a valid constraint when the
+            // character is cleared. For a named character, validate against
+            // the new pool so switching Ironclad → Silent cannot leave an
+            // impossible relic/card pin in the share spec.
+            var valid = character == RunCharacter.Any
+                ? SearchTheSpireCatalog.IsSharedCharacterlessValue(slot, value)
+                : SearchTheSpireCatalog.OptionsFor(slot, next)
+                    .Any(option => option.Id == value && !option.Blocked);
+            if (!valid)
+            {
+                nextValues.Remove(slot.Id);
+            }
+        }
+
+        return next;
+    }
 
     public SearchTheSpireBoardState WithAscension(int ascension) =>
         new(Character, ascension, new Dictionary<string, string?>(_values));
@@ -74,11 +295,27 @@ public sealed class SearchTheSpireBoardState
             throw new ArgumentException($"Unknown SearchTheSpire slot '{slotId}'.", nameof(slotId));
         }
 
+        var slot = SearchTheSpireCatalog.GetSlot(slotId);
         var next = new Dictionary<string, string?>(_values)
         {
             [slotId] = string.IsNullOrWhiteSpace(value) ? null : value.Trim().ToLowerInvariant(),
         };
         var state = new SearchTheSpireBoardState(Character, Ascension, next);
+        if (state.Character == RunCharacter.Any &&
+            SearchTheSpireCatalog.IsCharacterScoped(slot) &&
+            SearchTheSpireCatalog.TryOwnerCharacter(slot, state.Selected(slotId)) is { } owner)
+        {
+            state = state.WithCharacter(owner);
+            // WithCharacter validates existing character-scoped values before
+            // the direct selection is visible to it; restore the just-picked
+            // value after inferring the owner.
+            var inferredValues = new Dictionary<string, string?>(_values)
+            {
+                [slotId] = state.Selected(slotId),
+            };
+            state = new SearchTheSpireBoardState(owner, Ascension, inferredValues);
+        }
+
         return state.RaisePackageWindow(slotId);
     }
 
@@ -357,6 +594,43 @@ public static class SearchTheSpirePicker
 
 public static class SearchTheSpireCatalog
 {
+    private static readonly IReadOnlyDictionary<string, string> DisplayNames =
+        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["neowsbones"] = "Neow's Bones",
+            ["neowssacrifice"] = "Neow's Sacrifice",
+            ["neowstorment"] = "Neow's Torment",
+            ["neowstalisman"] = "Neow's Talisman",
+            ["largecapsule"] = "Large Capsule",
+            ["smallcapsule"] = "Small Capsule",
+            ["leafypoultice"] = "Leafy Poultice",
+            ["heftytablet"] = "Hefty Tablet",
+            ["precariousshears"] = "Precarious Shears",
+            ["silvercrucible"] = "Silver Crucible",
+            ["cursedpearl"] = "Cursed Pearl",
+            ["dowsingrod"] = "Dowsing Rod",
+            ["arcanescroll"] = "Arcane Scroll",
+            ["boomingconch"] = "Booming Conch",
+            ["fishingrod"] = "Fishing Rod",
+            ["goldenpearl"] = "Golden Pearl",
+            ["kaleidoscope"] = "Kaleidoscope",
+            ["leadpaperweight"] = "Lead Paperweight",
+            ["lostcoffer"] = "Lost Coffer",
+            ["newleaf"] = "New Leaf",
+            ["phialholster"] = "Phial Holster",
+            ["precisescissors"] = "Precise Scissors",
+            ["scrollboxes"] = "Scroll Boxes",
+            ["wingedboots"] = "Winged Boots",
+            ["lavarock"] = "Lava Rock",
+            ["nutritiousoyster"] = "Nutritious Oyster",
+            ["stonehumidifier"] = "Stone Humidifier",
+            ["pomander"] = "Pomander",
+            ["ruinedhelmet"] = "Ruined Helmet",
+            ["beatingremnant"] = "Beating Remnant",
+            ["bagofpreparation"] = "Bag of Preparation",
+            ["unsettlinglamp"] = "Unsettling Lamp",
+        };
+
     internal static readonly string[] CursedOffers =
     {
         "cursedpearl", "dowsingrod", "heftytablet", "largecapsule", "leafypoultice",
@@ -391,8 +665,8 @@ public static class SearchTheSpireCatalog
         new("tabletCard", "offers rare", "neowOffer", RequiresCharacter: true),
         new("poulticeCard1", "poultice gives", "neowOffer", "Leafy Poultice", RequiresCharacter: true),
         new("poulticeCard2", "and also gives", "neowOffer", "Leafy Poultice", RequiresCharacter: true),
-        new("largeRelicA", "pulls", "neowOffer", "Large Capsule", RequiresCharacter: true),
-        new("largeRelicB", "and pulls", "neowOffer", "Large Capsule", RequiresCharacter: true),
+        new("largeRelicA", "pulls", "neowOffer", "Large Capsule"),
+        new("largeRelicB", "and pulls", "neowOffer", "Large Capsule"),
         new("paperweightCard", "offers", "neowOffer", "Lead Paperweight"),
         new("arcaneCard", "the rare is", "neowOffer", RequiresCharacter: true),
         new("cofferCard", "offers card", "neowOffer", "Lost Coffer", RequiresCharacter: true),
@@ -405,7 +679,7 @@ public static class SearchTheSpireCatalog
         new("scrollboxCard3", "and contains", "neowOffer", "Scroll Boxes", RequiresCharacter: true),
         new("phialPotionA", "grants potion", "neowOffer", "Phial Holster"),
         new("phialPotionB", "and potion", "neowOffer", "Phial Holster"),
-        new("capsuleRelic", "grants relic", "neowOffer", "Small Capsule", RequiresCharacter: true),
+        new("capsuleRelic", "grants relic", "neowOffer", "Small Capsule"),
 
         new("boss1", "Act 1 boss", Cluster: "bosses"),
         new("boss2", "Act 2 boss", Cluster: "bosses"),
@@ -669,6 +943,48 @@ public static class SearchTheSpireCatalog
 
     public static bool ContainsSlot(string slotId) => SlotTable.Any(slot => slot.Id == slotId);
 
+    internal static bool IsCharacterScoped(SearchTheSpireSlot slot) =>
+        slot.RequiresCharacter ||
+        slot.Id.StartsWith("shopPick", StringComparison.Ordinal) ||
+        slot.Id.StartsWith("bagPick", StringComparison.Ordinal) ||
+        slot.Id is "largeRelicA" or "largeRelicB" or "capsuleRelic";
+
+    internal static bool IsSharedCharacterlessValue(SearchTheSpireSlot slot, string value) =>
+        slot.Id.StartsWith("shopPick", StringComparison.Ordinal)
+            ? SearchTheSpirePoolData.SharedShopRelics.Contains(value, StringComparer.Ordinal)
+            : slot.Id.StartsWith("bagPick", StringComparison.Ordinal)
+                ? SearchTheSpirePoolData.SharedCapsuleRelics.Contains(value, StringComparer.Ordinal)
+                : false;
+
+    internal static RunCharacter? TryOwnerCharacter(SearchTheSpireSlot slot, string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        var owner = slot.Id.StartsWith("shopPick", StringComparison.Ordinal)
+            ? SearchTheSpirePoolData.CharacterShopRelics
+            : slot.Id.StartsWith("bagPick", StringComparison.Ordinal) ||
+              slot.Id is "largeRelicA" or "largeRelicB" or "capsuleRelic"
+                ? SearchTheSpirePoolData.CharacterCapsuleRelics
+                : null;
+        if (owner == null)
+        {
+            return null;
+        }
+
+        foreach (var pair in owner)
+        {
+            if (pair.Value.Contains(value, StringComparer.Ordinal))
+            {
+                return pair.Key;
+            }
+        }
+
+        return null;
+    }
+
     public static SearchTheSpireSlot GetSlot(string slotId) =>
         SlotTable.FirstOrDefault(slot => slot.Id == slotId) ??
         throw new ArgumentException($"Unknown SearchTheSpire slot '{slotId}'.", nameof(slotId));
@@ -931,6 +1247,8 @@ public static class SearchTheSpireCatalog
                 ? CapsuleRelicOptions(state)
                 : CardOptions(state, slot.Id);
 
+        source = ApplyGroupedConstraints(slot, state, source);
+
         if (!slot.RequiresCharacter || state.Character != RunCharacter.Any)
         {
             return source;
@@ -1040,13 +1358,18 @@ public static class SearchTheSpireCatalog
             .Select(id => new SearchTheSpireOption(
                 id,
                 Humanize(id),
-                state.Character == RunCharacter.Any
-                    ? $"any character · {SearchTheSpirePoolData.RelicRarity.GetValueOrDefault(id, "Common").ToLowerInvariant()}"
-                    : $"relic rewards · {SearchTheSpirePoolData.RelicRarity.GetValueOrDefault(id, "Common").ToLowerInvariant()}",
+                state.Character == RunCharacter.Any ? "any character" : "relic rewards",
                 Rarity: SearchTheSpirePoolData.RelicRarity.GetValueOrDefault(id, "Common")));
         if (state.Character == RunCharacter.Any)
         {
-            return shared.ToArray();
+            return shared.Concat(SearchTheSpirePoolData.CharacterCapsuleRelics.SelectMany(pair =>
+                    pair.Value.Select(id => new SearchTheSpireOption(
+                        id,
+                        Humanize(id),
+                        $"{CharacterName(pair.Key)} — picks the character",
+                        OwnerCharacter: CharacterName(pair.Key),
+                        Rarity: SearchTheSpirePoolData.RelicRarity.GetValueOrDefault(id, "Rare")))))
+                .ToArray();
         }
 
         var own = SearchTheSpirePoolData.CharacterCapsuleRelics.TryGetValue(state.Character, out var values)
@@ -1182,6 +1505,68 @@ public static class SearchTheSpireCatalog
     private static IReadOnlyList<SearchTheSpireOption> BlockDuplicates(IEnumerable<SearchTheSpireOption> options, string? duplicate, string reason) =>
         options.Select(option => option.Id == duplicate ? option with { Blocked = true, BlockReason = reason } : option).ToArray();
 
+    private static IReadOnlyList<SearchTheSpireOption> ApplyGroupedConstraints(
+        SearchTheSpireSlot slot,
+        SearchTheSpireBoardState state,
+        IReadOnlyList<SearchTheSpireOption> options)
+    {
+        var distinctGroup = slot.Id switch
+        {
+            "largeRelicA" or "largeRelicB" => new[] { "largeRelicA", "largeRelicB" },
+            "kaleidoCard1" or "kaleidoCard2" => new[] { "kaleidoCard1", "kaleidoCard2" },
+            "bonesKaleidoCard1" or "bonesKaleidoCard2" => new[] { "bonesKaleidoCard1", "bonesKaleidoCard2" },
+            "bonesCapsuleSet1" or "bonesCapsuleSet2" or "bonesCapsuleSet3" => new[] { "bonesCapsuleSet1", "bonesCapsuleSet2", "bonesCapsuleSet3" },
+            _ => Array.Empty<string>(),
+        };
+        if (distinctGroup.Length > 0)
+        {
+            var taken = distinctGroup
+                .Where(id => id != slot.Id)
+                .Select(state.Selected)
+                .Where(value => !string.IsNullOrWhiteSpace(value))
+                .Select(value => value!)
+                .ToHashSet(StringComparer.Ordinal);
+            options = options.Select(option => taken.Contains(option.Id)
+                    ? option with { Blocked = true, BlockReason = "these grouped picks must be distinct" }
+                    : option)
+                .ToArray();
+        }
+
+        if (slot.Id is "scrollboxCard1" or "scrollboxCard2" or "scrollboxCard3" or
+            "bonesScrollboxCard1" or "bonesScrollboxCard2" or "bonesScrollboxCard3")
+        {
+            var group = slot.Id.StartsWith("bones", StringComparison.Ordinal)
+                ? new[] { "bonesScrollboxCard1", "bonesScrollboxCard2", "bonesScrollboxCard3" }
+                : new[] { "scrollboxCard1", "scrollboxCard2", "scrollboxCard3" };
+            var taken = group
+                .Where(id => id != slot.Id)
+                .Select(state.Selected)
+                .Where(value => !string.IsNullOrWhiteSpace(value))
+                .Select(value => value!)
+                .ToHashSet(StringComparer.Ordinal);
+            var commonCount = taken.Count(value => IsCommonCard(value, state));
+            var hasUncommon = taken.Any(value => IsUncommonCard(value, state));
+            options = options
+                .Where(option => IsCommonCard(option.Id, state) || IsUncommonCard(option.Id, state))
+                .Where(option => !taken.Contains(option.Id))
+                .Where(option => !(commonCount >= 2 && IsCommonCard(option.Id, state)))
+                .Where(option => !(hasUncommon && IsUncommonCard(option.Id, state)))
+                .ToArray();
+        }
+
+        return options;
+    }
+
+    private static bool IsCommonCard(string id, SearchTheSpireBoardState state) =>
+        state.Character != RunCharacter.Any &&
+        SearchTheSpirePoolData.CommonCards.TryGetValue(state.Character, out var cards) &&
+        cards.Contains(id, StringComparer.Ordinal);
+
+    private static bool IsUncommonCard(string id, SearchTheSpireBoardState state) =>
+        state.Character != RunCharacter.Any &&
+        SearchTheSpirePoolData.UncommonCards.TryGetValue(state.Character, out var cards) &&
+        cards.Contains(id, StringComparer.Ordinal);
+
     private static IReadOnlyList<SearchTheSpireOption> WithinOptions(string slotId)
     {
         var max = slotId == "eventWithin" ? 5 : 6;
@@ -1194,8 +1579,17 @@ public static class SearchTheSpireCatalog
     private static bool HasAnyGrant(SearchTheSpireBoardState state, params string[] ids) =>
         ids.Any(id => HasGrant(state, id));
 
-    private static string Humanize(string id) =>
-        string.Join(' ', id.Split('_', StringSplitOptions.RemoveEmptyEntries)
+    public static string DisplayName(string id)
+    {
+        if (DisplayNames.TryGetValue(id, out var name))
+        {
+            return name;
+        }
+
+        return string.Join(' ', id.Split('_', StringSplitOptions.RemoveEmptyEntries)
             .Select(part => part.Length == 0 ? part : char.ToUpperInvariant(part[0]) + part[1..]))
             .Replace("dollroom", "Doll Room", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string Humanize(string id) => DisplayName(id);
 }

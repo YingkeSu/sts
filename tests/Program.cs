@@ -68,8 +68,8 @@ foreach (var (seed, expected) in betaNeowChecks)
     var summaryParts = snapshot.NeowOffers.Split(" / ", StringSplitOptions.TrimEntries);
     if (snapshot.NeowOfferId != expected.Cursed ||
         summaryParts.Length < 3 ||
-        !summaryParts[1].Equals(expected.BonusA, StringComparison.OrdinalIgnoreCase) ||
-        !summaryParts[2].Equals(expected.BonusB, StringComparison.OrdinalIgnoreCase) ||
+        !summaryParts[1].Equals(SearchTheSpireCatalog.DisplayName(expected.BonusA), StringComparison.OrdinalIgnoreCase) ||
+        !summaryParts[2].Equals(SearchTheSpireCatalog.DisplayName(expected.BonusB), StringComparison.OrdinalIgnoreCase) ||
         snapshot.NeowGrantAId != (expected.GrantA ?? "") ||
         snapshot.NeowGrantBId != (expected.GrantB ?? ""))
     {
@@ -359,6 +359,78 @@ if (!sharedShop.Any(option => option.Id == "bread" && option.Section == "any cha
 
 Console.WriteLine("SearchTheSpire pool-section checks passed.");
 
+var characterSwitch = SearchTheSpireBoardState.Empty
+    .WithCharacter(RunCharacter.Ironclad)
+    .Select("shopPick1", "brimstone")
+    .Select("largeRelicA", "ruinedhelmet")
+    .Select("rewardPick1", "aggression")
+    .WithCharacter(RunCharacter.Silent);
+if (characterSwitch.Selected("shopPick1") != null ||
+    characterSwitch.Selected("largeRelicA") != null ||
+    characterSwitch.Selected("rewardPick1") != null)
+{
+    throw new InvalidOperationException("Changing character kept selections that are not valid in the new character pools.");
+}
+
+var sharedAfterCharacterSwitch = characterSwitch
+    .Select("shopPick1", "bread")
+    .Selected("shopPick1");
+if (sharedAfterCharacterSwitch != "bread")
+{
+    throw new InvalidOperationException("Changing character incorrectly removed a shared relic selection path.");
+}
+
+Console.WriteLine("SearchTheSpire character-switch checks passed.");
+
+var charlessCapsule = SearchTheSpireBoardState.Empty.OptionsFor("largeRelicA");
+if (charlessCapsule.Any(option => option.Blocked) ||
+    !charlessCapsule.Any(option => option.Section == "any character" && option.Id == "anchor") ||
+    !charlessCapsule.Any(option => option.OwnerCharacter == "Ironclad" && option.Id == "ruinedhelmet"))
+{
+    throw new InvalidOperationException("A charless capsule picker did not expose shared and character-specific relic sections.");
+}
+
+var inferredCapsuleCharacter = SearchTheSpireBoardState.Empty.Select("largeRelicA", "ruinedhelmet");
+if (inferredCapsuleCharacter.Character != RunCharacter.Ironclad)
+{
+    throw new InvalidOperationException("Picking a character-specific capsule relic did not infer its character.");
+}
+
+Console.WriteLine("SearchTheSpire charless capsule checks passed.");
+
+var groupedDetails = SearchTheSpireBoardState.Empty
+    .WithCharacter(RunCharacter.Ironclad)
+    .Select("neowOffer", "kaleidoscope")
+    .Select("kaleidoCard1", "alignment");
+if (groupedDetails.OptionsFor("kaleidoCard2").Any(option => option.Id == "alignment" && !option.Blocked))
+{
+    throw new InvalidOperationException("Kaleidoscope's second card picker allowed a duplicate card.");
+}
+
+var scrollboxDetails = SearchTheSpireBoardState.Empty
+    .WithCharacter(RunCharacter.Ironclad)
+    .Select("neowOffer", "scrollboxes")
+    .Select("scrollboxCard1", "anger")
+    .Select("scrollboxCard2", "armaments");
+var scrollboxThird = scrollboxDetails.OptionsFor("scrollboxCard3");
+if (scrollboxThird.Any(option => option.Id == "ironwave") ||
+    !scrollboxThird.Any(option => option.Id == "ashenstrike"))
+{
+    throw new InvalidOperationException("Scroll Boxes did not enforce the one-bundle 2-common/1-uncommon constraint.");
+}
+
+var bonesCapsuleDetails = SearchTheSpireBoardState.Empty
+    .WithCharacter(RunCharacter.Ironclad)
+    .Select("neowOffer", "neowsbones")
+    .Select("bonesGrantA", "largecapsule")
+    .Select("bonesCapsuleSet1", "anchor");
+if (bonesCapsuleDetails.OptionsFor("bonesCapsuleSet2").Any(option => option.Id == "anchor" && !option.Blocked))
+{
+    throw new InvalidOperationException("Bones capsule pulls allowed the same relic twice.");
+}
+
+Console.WriteLine("SearchTheSpire grouped-detail checks passed.");
+
 var freshReward = SearchTheSpireBoardState.Empty
     .WithCharacter(RunCharacter.Ironclad)
     .Select("neowOffer", "kaleidoscope")
@@ -414,3 +486,26 @@ if (!SearchTheSpireBoardState.Empty.Select("ancient2", "darv").OptionsFor("ancie
 }
 
 Console.WriteLine("SearchTheSpire package-floor checks passed.");
+
+var restoredQueryState = SearchTheSpireBoardState.FromSpec(
+    RunCharacter.Ironclad,
+    10,
+    "char=ironclad,neow=3,large_relic=ruinedhelmet+anchor,reward_within=3,reward_cards=aggression+bash,reward_ordered,shop_within=2,shop_relic=anchor,event_in2=selfhelpbook,ancient2=orobas,ancient2_offers=glasseye");
+if (restoredQueryState.Selected("neowOffer") != "largecapsule" ||
+    restoredQueryState.Selected("largeRelicA") != "ruinedhelmet" ||
+    restoredQueryState.Selected("largeRelicB") != "anchor" ||
+    restoredQueryState.Selected("rewardWithin") != "3" ||
+    restoredQueryState.Selected("rewardPick1") != "aggression" ||
+    restoredQueryState.Selected("rewardPick2") != "bash" ||
+    restoredQueryState.Selected("rewardOrdered") != "true" ||
+    restoredQueryState.Selected("shopPick1") != "anchor" ||
+    restoredQueryState.Selected("shopWithin") != "2" ||
+    restoredQueryState.Selected("eventPick1") != "selfhelpbook" ||
+    restoredQueryState.Selected("eventWithin") != "2" ||
+    restoredQueryState.Selected("ancient2") != "orobas" ||
+    restoredQueryState.Selected("ancient2Offers") != "glasseye")
+{
+    throw new InvalidOperationException("Saved SearchTheSpire specs did not restore their board selections.");
+}
+
+Console.WriteLine("SearchTheSpire saved-query restore checks passed.");

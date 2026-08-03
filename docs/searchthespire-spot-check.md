@@ -38,4 +38,24 @@ Mod 的 Inspect 还用当前游戏进程创建单个 `RunState`，生成 Act 1 �
 
 首领差异来自当前本地进程加载的内容/首领池与 SearchTheSpire 固定的 vanilla/public-beta 表不同；因此结果页把单种子检查标记为 `game runtime`，批量搜索仍使用 `reference RNG`，不把这四个样本宣称为完整 vanilla 首领 parity。
 
-SearchTheSpire 是独立的社区工具，本项目没有复制它的 WASM 或私有部署文件；站点页面和已部署模块只用于行为参考，具体来源与版本边界见 [community-api-research.md](community-api-research.md)。
+SearchTheSpire 首页明确将自己标为 unofficial fan-made tool；目前没有发现它的官方 GitHub 源码仓库。首页只公开链接了社区前身 [tckmn/sts2-seed-search](https://github.com/tckmn/sts2-seed-search)，并说明初始 Neow predicates 来自该仓库。本项目没有复制它的 WASM 或私有部署文件；站点页面和已部署模块只用于行为参考，具体来源与版本边界见 [community-api-research.md](community-api-research.md)。
+
+## 网页源码隐藏设计回归
+
+这次没有只对照首页的字段，而是逐项检查 SearchTheSpire 已部署页面的 `board.js`、`board_ui.js`、`picker.js`、`inspector.js` 和 `trending.js` 行为，并把容易遗漏的交互补进模型与页面：
+
+- 角色切换会清理失效的角色专属 pins；无角色时的 Capsule/Large Capsule picker 同时显示 shared 与角色分组，点击角色专属遗物会推断角色。
+- Kaleidoscope、Neow's Bones 胶囊拉取和 Scroll Boxes 共享池约束：不允许重复；Scroll Boxes 只允许 common/uncommon，并限制为 2 common + 1 uncommon。
+- Neow 扩展项继续按同一 reward roll 分组，fresh-reward rares、ancient 条件 offer、event map lock、reward/shop/bag/event package floor 均保留依赖门槛。
+- Popular 页提供本地保存搜索的频次排名；Saved/Popular 的 Open 会从 `HiddenSpec` 恢复完整 board，而不是只恢复结果列表。
+
+对应的 TDD 回归输出包括 `character-switch`、`charless capsule`、`grouped-detail`、`package-floor` 与 `saved-query restore` checks；最新 DLL 在游戏内完成了 6 轮 `search → details → hide → clear` 全流程，且无 UI 输入冻结。
+
+行为参考源码：
+
+- [SearchTheSpire](https://searchthespire.app/)
+- [SearchTheSpire board.js](https://searchthespire.app/v/aa92d44/board.js)
+- [SearchTheSpire board_ui.js](https://searchthespire.app/v/aa92d44/board_ui.js)
+- [SearchTheSpire picker.js](https://searchthespire.app/v/aa92d44/picker.js)
+- [SearchTheSpire inspector.js](https://searchthespire.app/v/aa92d44/inspector.js)
+- [SearchTheSpire trending.js](https://searchthespire.app/v/aa92d44/trending.js)

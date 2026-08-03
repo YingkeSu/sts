@@ -693,8 +693,7 @@ public sealed class SeedSearchEngine
         return false;
     }
 
-    private static string Humanize(string id) => string.Join(' ', id.Split('_', StringSplitOptions.RemoveEmptyEntries)
-        .Select(part => part.Length == 0 ? part : char.ToUpperInvariant(part[0]) + part[1..]));
+    private static string Humanize(string id) => SearchTheSpireCatalog.DisplayName(id);
 
     private static class SeedCodec
     {
