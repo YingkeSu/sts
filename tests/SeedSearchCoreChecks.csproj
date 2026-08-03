@@ -8,6 +8,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="../SeedSearchPrototypeCode/SeedModels.cs" />
+    <Compile Include="../SeedSearchPrototypeCode/SearchTheSpireModel.cs" />
     <Compile Include="../SeedSearchPrototypeCode/SeedSearchEngine.cs" />
     <Compile Include="Program.cs" />
   </ItemGroup>

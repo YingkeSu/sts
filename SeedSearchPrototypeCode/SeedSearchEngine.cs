@@ -12,6 +12,37 @@ public sealed class SeedSearchEngine
 {
     private const string BetaAlphabet = "0123456789ABCDEFGHJKLMNPQRSTUVWXYZ";
     private const int BetaSeedLength = 12;
+    private static readonly (string Id, string Title)[] NeowOffers =
+    {
+        ("heftytablet", "Hefty Tablet"),
+        ("arcanescroll", "Arcane Scroll"),
+        ("leadpaperweight", "Lead Paperweight"),
+        ("lostcoffer", "Lost Coffer"),
+        ("kaleidoscope", "Kaleidoscope"),
+        ("leafypoultice", "Leafy Poultice"),
+        ("newleaf", "New Leaf"),
+        ("scrollboxes", "Scroll Boxes"),
+        ("phialholster", "Phial Holster"),
+        ("largecapsule", "Large Capsule"),
+        ("smallcapsule", "Small Capsule"),
+        ("neowsbones", "Neow's Bones"),
+        ("touchoforobas", "Touch of Orobas"),
+        ("archaictooth", "Archaic Tooth"),
+        ("nutritioussoup", "Nutritious Soup"),
+        ("triboomerang", "Triboome-rang"),
+        ("beautifulbracelet", "Beautiful Bracelet"),
+        ("paelsclaw", "Pael's Claw"),
+        ("paelstooth", "Pael's Tooth"),
+        ("paelslegion", "Pael's Legion"),
+    };
+
+    private static readonly string[] GrantRelics =
+    {
+        "heftytablet", "arcanescroll", "leadpaperweight", "lostcoffer",
+        "kaleidoscope", "leafypoultice", "newleaf", "scrollboxes",
+        "phialholster", "largecapsule", "smallcapsule", "touchoforobas",
+        "archaictooth",
+    };
 
     public static string CreateSeed(SeedBranch branch, long index) => SeedCodec.FromIndex(branch, index);
 
@@ -84,12 +115,25 @@ public sealed class SeedSearchEngine
             map.Append(display);
         }
 
-        var neow = hasBlessing
-            ? hasCurse ? "Blessing / curse" : "Blessing / gold"
-            : hasCurse ? "Curse / gold" : "Gold / relic";
         var ancients = $"Ancient {(char)('A' + (Next(ref state) % 4))}";
         var bossA = $"Boss {(Next(ref state) % 3) + 1}";
         var bossB = $"Boss {(Next(ref state) % 3) + 1}";
+        var offer = NeowOffers[(int)(Next(ref state) % (ulong)NeowOffers.Length)];
+        var grantA = "";
+        var grantB = "";
+        if (offer.Id == "neowsbones")
+        {
+            grantA = GrantRelics[(int)(Next(ref state) % (ulong)GrantRelics.Length)];
+            do
+            {
+                grantB = GrantRelics[(int)(Next(ref state) % (ulong)GrantRelics.Length)];
+            }
+            while (grantB == grantA);
+        }
+        var neowSummary = hasBlessing
+            ? hasCurse ? "blessing / curse" : "blessing / gold"
+            : hasCurse ? "curse / gold" : "gold / relic";
+        var neow = $"{offer.Title} · {neowSummary}";
 
         return new SeedSnapshot(
             seed,
@@ -101,11 +145,14 @@ public sealed class SeedSearchEngine
             shopCount,
             restSiteCount,
             hasBlessing,
-            hasCurse);
+            hasCurse,
+            offer.Id,
+            grantA,
+            grantB);
     }
 
     private static string BuildContext(SeedQuery query) =>
-        $"{query.GameApiVersion}|{query.Character}|A{query.Ascension}|{query.RunMode}";
+        $"{query.GameApiVersion}|{query.Character}|A{query.Ascension}|{query.RunMode}|{query.HiddenSpec}";
 
     private static bool Matches(SeedQuery query, SeedSnapshot snapshot)
     {
@@ -124,8 +171,43 @@ public sealed class SeedSearchEngine
         };
 
         return neowMatches &&
+               MatchesHiddenSpec(query.HiddenSpec, snapshot) &&
                MatchesNamedFilter(snapshot.Ancients, query.AncientFilter) &&
                MatchesNamedFilter(snapshot.Bosses, query.BossFilter);
+    }
+
+    private static bool MatchesHiddenSpec(string spec, SeedSnapshot snapshot)
+    {
+        if (string.IsNullOrWhiteSpace(spec))
+        {
+            return true;
+        }
+
+        foreach (var fragment in spec.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var separator = fragment.IndexOf('=');
+            if (separator <= 0 || separator == fragment.Length - 1)
+            {
+                continue;
+            }
+
+            var key = fragment[..separator];
+            var expected = fragment[(separator + 1)..];
+            var actual = key switch
+            {
+                "neowOffer" => snapshot.NeowOfferId,
+                "bonesGrantA" => snapshot.NeowGrantAId,
+                "bonesGrantB" => snapshot.NeowGrantBId,
+                _ => null,
+            };
+
+            if (actual != null && !actual.Equals(expected, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private static bool MatchesNamedFilter(string value, string filter) =>

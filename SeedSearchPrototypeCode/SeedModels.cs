@@ -43,7 +43,8 @@ public sealed record SeedQuery(
     int MinimumRestSites,
     NeowFilter NeowFilter,
     string AncientFilter,
-    string BossFilter);
+    string BossFilter,
+    string HiddenSpec = "");
 
 public sealed record SeedSnapshot(
     string Seed,
@@ -55,7 +56,10 @@ public sealed record SeedSnapshot(
     int ShopCount,
     int RestSiteCount,
     bool HasBlessing,
-    bool HasCurse);
+    bool HasCurse,
+    string NeowOfferId = "",
+    string NeowGrantAId = "",
+    string NeowGrantBId = "");
 
 public sealed record SeedMatch(string Seed, SeedSnapshot Snapshot);
 
