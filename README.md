@@ -1,5 +1,7 @@
 # Seed Search
 
+仓库全名：`sts-searchtheseed`
+
 这是一个《杀戮尖塔 2》游戏内种子搜索 Mod，界面按 SearchTheSpire 的工作流组织：
 
 - Board / Popular / Saved 标签页；
@@ -32,6 +34,12 @@ SlayTheSpire2.app/Contents/MacOS/mods/SeedSearchPrototype/
 ```
 
 当前项目是代码型 Mod，不需要 `.pck`。本地路径已按 Apple Silicon 安装目录显式配置在 [Sts2PathDiscovery.props](Sts2PathDiscovery.props) 中。
+
+## 版本边界
+
+- 当前 manifest 钉在 public beta `v0.110.1`；不要把其它分支的 RNG 结果混用。
+- SearchTheSpire 的 seed preview 用于版本与字段抽检；它是浏览器端 Rust/WASM 工具，不作为 Mod 的运行时依赖。
+- 查询模型、Picker 与结果详情已经独立，后续替换版本化 RNG backend 时不需要重做页面。
 
 ## 使用
 
