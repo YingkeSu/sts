@@ -3,7 +3,7 @@
 这是一个《杀戮尖塔 2》游戏内种子搜索 Mod，界面按 SearchTheSpire 的工作流组织：
 
 - Board / Popular / Saved 标签页；
-- public beta 与 main 分支选择；
+- 当前 public beta 分支选择；
 - Neow、Act 1 精英、商店、休息点筛选；
 - 搜索数量、候选范围、偏移量；
 - Inspect seed；
@@ -27,4 +27,4 @@ SlayTheSpire2.app/Contents/MacOS/mods/SeedSearchPrototype/
 
 ## 使用
 
-重启游戏后，右下角会出现 `Seed Search` 按钮。打开后可以搜索或检查种子；当前搜索接口与 UI 已独立，后续可在不改页面的情况下替换为按游戏版本校验过的 RNG 实现。
+重启游戏后，右下角会出现 `Seed Search` 按钮。打开后可以搜索或检查种子，保存的搜索会写入 Godot 的用户数据目录；搜索接口与 UI 已独立，后续可以在不改页面的情况下替换为按游戏版本校验过的 RNG 实现。

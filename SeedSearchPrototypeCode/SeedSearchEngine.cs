@@ -25,12 +25,14 @@ public sealed class SeedSearchEngine
         var budget = Math.Clamp(query.MaxCandidates, 1, 10_000_000);
         var start = Math.Max(0, query.StartOffset);
 
+        long checkedCount = 0;
         for (long offset = 0; offset < budget && matches.Count < stopAfter; offset++)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
             var seed = SeedCodec.FromIndex(query.Branch, start + offset);
-            var snapshot = Inspect(seed, query.Branch);
+            var snapshot = Inspect(seed, query.Branch, BuildContext(query));
+            checkedCount = offset + 1;
             if (Matches(query, snapshot))
             {
                 matches.Add(new SeedMatch(seed, snapshot));
@@ -42,17 +44,17 @@ public sealed class SeedSearchEngine
             }
         }
 
-        progress?.Invoke(new SearchProgress(Math.Min(budget, Math.Max(1, budget)), budget, matches.Count));
+        progress?.Invoke(new SearchProgress(checkedCount, budget, matches.Count));
         return matches;
     }
 
-    public SeedSnapshot Inspect(string rawSeed, SeedBranch branch)
+    public SeedSnapshot Inspect(string rawSeed, SeedBranch branch, string context = "")
     {
         var seed = string.IsNullOrWhiteSpace(rawSeed)
             ? SeedCodec.FromIndex(branch, 0)
             : rawSeed.Trim().ToUpperInvariant();
 
-        var state = HashSeed(seed);
+        var state = HashSeed($"{branch}|{context}|{seed}");
         var eliteCount = 1 + (int)(Next(ref state) % 3);
         var shopCount = (int)(Next(ref state) % 3);
         var restSiteCount = 1 + (int)(Next(ref state) % 3);
@@ -102,6 +104,9 @@ public sealed class SeedSearchEngine
             hasCurse);
     }
 
+    private static string BuildContext(SeedQuery query) =>
+        $"{query.GameApiVersion}|{query.Character}|A{query.Ascension}|{query.RunMode}";
+
     private static bool Matches(SeedQuery query, SeedSnapshot snapshot)
     {
         if (snapshot.EliteCount < query.MinimumElites ||
@@ -111,13 +116,20 @@ public sealed class SeedSearchEngine
             return false;
         }
 
-        return query.NeowFilter switch
+        var neowMatches = query.NeowFilter switch
         {
             NeowFilter.HasBlessing => snapshot.HasBlessing,
             NeowFilter.HasCurse => snapshot.HasCurse,
             _ => true
         };
+
+        return neowMatches &&
+               MatchesNamedFilter(snapshot.Ancients, query.AncientFilter) &&
+               MatchesNamedFilter(snapshot.Bosses, query.BossFilter);
     }
+
+    private static bool MatchesNamedFilter(string value, string filter) =>
+        string.IsNullOrWhiteSpace(filter) || filter.Equals("Any", StringComparison.OrdinalIgnoreCase) || value.Contains(filter, StringComparison.OrdinalIgnoreCase);
 
     private static ulong HashSeed(string seed)
     {

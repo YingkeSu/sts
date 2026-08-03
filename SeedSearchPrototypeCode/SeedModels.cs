@@ -13,15 +13,37 @@ public enum NeowFilter
     HasCurse
 }
 
+public enum RunCharacter
+{
+    Any,
+    Ironclad,
+    Silent,
+    Regent,
+    Defect,
+    Necrobinder
+}
+
+public enum RunMode
+{
+    Plain,
+    CustomModifiers
+}
+
 public sealed record SeedQuery(
     SeedBranch Branch,
+    string GameApiVersion,
+    RunCharacter Character,
+    int Ascension,
+    RunMode RunMode,
     int StopAfter,
     long StartOffset,
     long MaxCandidates,
     int MinimumElites,
     int MinimumShops,
     int MinimumRestSites,
-    NeowFilter NeowFilter);
+    NeowFilter NeowFilter,
+    string AncientFilter,
+    string BossFilter);
 
 public sealed record SeedSnapshot(
     string Seed,

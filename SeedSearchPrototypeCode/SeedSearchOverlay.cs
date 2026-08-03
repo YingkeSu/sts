@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.Json;
 using Godot;
 
 namespace SeedSearchPrototype;
@@ -38,6 +39,11 @@ public partial class SeedSearchOverlay : CanvasLayer
     private OptionButton _eliteInput = null!;
     private OptionButton _shopInput = null!;
     private OptionButton _restInput = null!;
+    private OptionButton _characterInput = null!;
+    private OptionButton _ascensionInput = null!;
+    private OptionButton _runModeInput = null!;
+    private OptionButton _ancientInput = null!;
+    private OptionButton _bossInput = null!;
     private Button _searchButton = null!;
     private Button _cancelButton = null!;
     private Button _spoilerButton = null!;
@@ -61,6 +67,7 @@ public partial class SeedSearchOverlay : CanvasLayer
 
         BuildLauncher();
         BuildPages();
+        LoadSavedSearches();
         ShowBoard();
     }
 
@@ -72,18 +79,29 @@ public partial class SeedSearchOverlay : CanvasLayer
             _searchCancellation?.Dispose();
             _searchCancellation = null;
 
-            try
+            if (completedTask.IsCanceled)
             {
-                ApplyResults(completedTask.Result);
-            }
-            catch (OperationCanceledException)
-            {
+                RestoreSearchUi();
                 SetStatus("search cancelled", MutedText);
             }
-            catch (Exception exception)
+            else if (completedTask.IsFaulted)
             {
-                MainFile.Logger.Error($"Seed search failed: {exception}");
+                MainFile.Logger.Error($"Seed search failed: {completedTask.Exception}");
+                RestoreSearchUi();
                 SetStatus("search failed; check godot.log", Danger);
+            }
+            else
+            {
+                try
+                {
+                    ApplyResults(completedTask.GetAwaiter().GetResult());
+                }
+                catch (Exception exception)
+                {
+                    MainFile.Logger.Error($"Seed search result handling failed: {exception}");
+                    RestoreSearchUi();
+                    SetStatus("search failed; check godot.log", Danger);
+                }
             }
         }
 
@@ -190,7 +208,7 @@ public partial class SeedSearchOverlay : CanvasLayer
         searchBar.AddThemeConstantOverride("separation", 8);
         page.AddChild(searchBar);
         searchBar.AddChild(MakeLabel("searching", 14, MutedText));
-        _branchInput = MakeOption(new[] { "public beta · v0.110.1", "main · v0.107.1" }, 0, 240);
+        _branchInput = MakeOption(new[] { "public beta · v0.110.1" }, 0, 240);
         searchBar.AddChild(_branchInput);
         var shareButton = MakeButton("share", "Copy a shareable search spec", 92);
         shareButton.Pressed += ShareSearch;
@@ -229,13 +247,23 @@ public partial class SeedSearchOverlay : CanvasLayer
         content.AddChild(grid);
 
         _neowInput = MakeOption(new[] { "any Neow offers", "has a blessing", "has a curse" }, 0, 210);
+        _characterInput = MakeOption(new[] { "any character", "Ironclad", "Silent", "Regent", "Defect", "Necrobinder" }, 0, 210);
+        _ascensionInput = MakeOption(new[] { "Ascension 0", "Ascension 5", "Ascension 10", "Ascension 15", "Ascension 20" }, 0, 210);
+        _runModeInput = MakeOption(new[] { "plain run" }, 0, 210);
         _eliteInput = MakeOption(new[] { "0+ elites", "1+ elites", "2+ elites", "3+ elites" }, 0, 210);
         _shopInput = MakeOption(new[] { "0+ shops", "1+ shops", "2+ shops" }, 0, 210);
         _restInput = MakeOption(new[] { "0+ rest sites", "1+ rest sites", "2+ rest sites", "3+ rest sites" }, 0, 210);
+        _ancientInput = MakeOption(new[] { "Any", "Ancient A", "Ancient B", "Ancient C", "Ancient D" }, 0, 210);
+        _bossInput = MakeOption(new[] { "Any", "Boss 1", "Boss 2", "Boss 3" }, 0, 210);
         AddField(grid, "Neow", _neowInput);
+        AddField(grid, "Character", _characterInput);
+        AddField(grid, "Ascension", _ascensionInput);
+        AddField(grid, "Run mode", _runModeInput);
         AddField(grid, "Act 1 elites", _eliteInput);
         AddField(grid, "Act 1 shops", _shopInput);
         AddField(grid, "Act 1 rests", _restInput);
+        AddField(grid, "Ancient", _ancientInput);
+        AddField(grid, "Boss", _bossInput);
 
         content.AddChild(MakeSeparator());
         content.AddChild(MakeLabel("search controls", 15, Text));
@@ -406,6 +434,11 @@ public partial class SeedSearchOverlay : CanvasLayer
 
     private void CancelSearch()
     {
+        if (_searchTask == null)
+        {
+            return;
+        }
+
         _searchCancellation?.Cancel();
         _progressLabel.Text = "cancelling…";
     }
@@ -419,8 +452,8 @@ public partial class SeedSearchOverlay : CanvasLayer
             return;
         }
 
-        var branch = ReadBranch();
-        var match = new SeedMatch(seed, _engine.Inspect(seed, branch));
+        var query = ReadQuery();
+        var match = new SeedMatch(seed, _engine.Inspect(seed, query.Branch, BuildContext(query)));
         ApplyResults(new[] { match });
         _inspectStatusLabel.Text = $"inspected {seed}";
     }
@@ -445,7 +478,8 @@ public partial class SeedSearchOverlay : CanvasLayer
             _resultsList.AddChild(BuildResultRow(result));
         }
 
-        SetStatus("stopped at the match cap", Accent);
+        var hitMatchCap = _lastQuery != null && results.Count >= _lastQuery.StopAfter;
+        SetStatus(hitMatchCap ? "stopped at the match cap" : $"searched {_lastProgress:N0} candidates", Accent);
     }
 
     private Control BuildResultRow(SeedMatch match)
@@ -492,6 +526,7 @@ public partial class SeedSearchOverlay : CanvasLayer
         }
 
         _savedSearches.Add(new SavedSearch(_lastQuery, _lastResults.ToList()));
+        PersistSavedSearches();
         RebuildSavedList();
         SetStatus("saved this search", Accent);
     }
@@ -499,7 +534,7 @@ public partial class SeedSearchOverlay : CanvasLayer
     private void ShareSearch()
     {
         var query = ReadQuery();
-        var spec = $"sts2seed://search?branch={ReadBranch()}&neow={query.NeowFilter}&elites={query.MinimumElites}&shops={query.MinimumShops}&rests={query.MinimumRestSites}&offset={query.StartOffset}";
+        var spec = $"sts2seed://search?version={query.GameApiVersion}&branch={query.Branch}&character={query.Character}&ascension={query.Ascension}&mode={query.RunMode}&neow={query.NeowFilter}&ancient={query.AncientFilter}&boss={query.BossFilter}&elites={query.MinimumElites}&shops={query.MinimumShops}&rests={query.MinimumRestSites}&offset={query.StartOffset}";
         CopyToClipboard(spec);
         SetStatus("search spec copied", Accent);
     }
@@ -552,24 +587,25 @@ public partial class SeedSearchOverlay : CanvasLayer
 
     private void ShowBoard()
     {
-        _boardPage.Visible = true;
-        _popularPage.Visible = false;
-        _savedPage.Visible = false;
+        ShowPage(_boardPage);
     }
 
     private void ShowPopular()
     {
-        _boardPage.Visible = false;
-        _popularPage.Visible = true;
-        _savedPage.Visible = false;
+        ShowPage(_popularPage);
     }
 
     private void ShowSaved()
     {
         RebuildSavedList();
-        _boardPage.Visible = false;
-        _popularPage.Visible = false;
-        _savedPage.Visible = true;
+        ShowPage(_savedPage);
+    }
+
+    private void ShowPage(Control selectedPage)
+    {
+        _boardPage.Visible = selectedPage == _boardPage;
+        _popularPage.Visible = selectedPage == _popularPage;
+        _savedPage.Visible = selectedPage == _savedPage;
     }
 
     private SeedQuery ReadQuery()
@@ -581,17 +617,33 @@ public partial class SeedSearchOverlay : CanvasLayer
         var stopAfter = new[] { 5, 10, 20, 50 }[_stopAfterInput.Selected];
         var maxCandidates = new[] { 10_000L, 50_000L, 250_000L, 1_000_000L }[_maxCandidatesInput.Selected];
         return new SeedQuery(
-            ReadBranch(),
-            stopAfter,
-            offset,
-            maxCandidates,
-            _eliteInput.Selected,
-            _shopInput.Selected,
-            _restInput.Selected,
-            (NeowFilter)_neowInput.Selected);
+            Branch: ReadBranch(),
+            GameApiVersion: "0.110.1",
+            Character: (RunCharacter)_characterInput.Selected,
+            Ascension: _ascensionInput.Selected * 5,
+            RunMode: (RunMode)_runModeInput.Selected,
+            StopAfter: stopAfter,
+            StartOffset: offset,
+            MaxCandidates: maxCandidates,
+            MinimumElites: _eliteInput.Selected,
+            MinimumShops: _shopInput.Selected,
+            MinimumRestSites: _restInput.Selected,
+            NeowFilter: (NeowFilter)_neowInput.Selected,
+            AncientFilter: _ancientInput.GetItemText(_ancientInput.Selected),
+            BossFilter: _bossInput.GetItemText(_bossInput.Selected));
     }
 
-    private SeedBranch ReadBranch() => _branchInput.Selected == 1 ? SeedBranch.Main : SeedBranch.PublicBeta;
+    private SeedBranch ReadBranch() => SeedBranch.PublicBeta;
+
+    private static string BuildContext(SeedQuery query) =>
+        $"{query.GameApiVersion}|{query.Character}|A{query.Ascension}|{query.RunMode}";
+
+    private void RestoreSearchUi()
+    {
+        _searchButton.Disabled = false;
+        _cancelButton.Disabled = true;
+        _progressLabel.Text = "ready";
+    }
 
     private void SetStatus(string text, Color color)
     {
@@ -691,5 +743,42 @@ public partial class SeedSearchOverlay : CanvasLayer
         DisplayServer.ClipboardSet(text);
     }
 
-    private sealed record SavedSearch(SeedQuery Query, List<SeedMatch> Results);
+    private static string SavedSearchPath => ProjectSettings.GlobalizePath("user://seed_search_saved.json");
+
+    private void LoadSavedSearches()
+    {
+        try
+        {
+            if (!File.Exists(SavedSearchPath))
+            {
+                return;
+            }
+
+            var json = File.ReadAllText(SavedSearchPath);
+            var saved = JsonSerializer.Deserialize<List<SavedSearch>>(json);
+            if (saved != null)
+            {
+                _savedSearches.AddRange(saved);
+            }
+        }
+        catch (Exception exception)
+        {
+            MainFile.Logger.Error($"Could not load saved seed searches: {exception.Message}");
+        }
+    }
+
+    private void PersistSavedSearches()
+    {
+        try
+        {
+            var json = JsonSerializer.Serialize(_savedSearches, new JsonSerializerOptions { WriteIndented = true });
+            File.WriteAllText(SavedSearchPath, json);
+        }
+        catch (Exception exception)
+        {
+            MainFile.Logger.Error($"Could not save seed searches: {exception.Message}");
+        }
+    }
+
+    public sealed record SavedSearch(SeedQuery Query, List<SeedMatch> Results);
 }
