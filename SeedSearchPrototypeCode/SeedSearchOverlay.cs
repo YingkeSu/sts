@@ -37,6 +37,7 @@ public partial class SeedSearchOverlay : CanvasLayer
     private OptionButton _maxCandidatesInput = null!;
     private Button _neowInputButton = null!;
     private VBoxContainer _neowDetails = null!;
+    private VBoxContainer _advancedDetails = null!;
     private OptionButton _eliteInput = null!;
     private OptionButton _shopInput = null!;
     private OptionButton _restInput = null!;
@@ -258,6 +259,7 @@ public partial class SeedSearchOverlay : CanvasLayer
 
         content.AddChild(MakeLabel("compose the run start you want", 16, Text));
         content.AddChild(MakeLabel("empty slots match anything", 12, MutedText));
+        content.AddChild(MakeLabel("bulk search · reference RNG projection · Inspect uses game runtime when available", 11, MutedText));
 
         var grid = new GridContainer { Columns = 2 };
         grid.AddThemeConstantOverride("h_separation", 10);
@@ -271,8 +273,14 @@ public partial class SeedSearchOverlay : CanvasLayer
         {
             _boardState = _boardState.WithCharacter((RunCharacter)index);
             RefreshNeowDetails();
+            RefreshAdvancedDetails();
         };
         _ascensionInput = MakeOption(new[] { "Ascension 0", "Ascension 5", "Ascension 10", "Ascension 15", "Ascension 20" }, 0, 210);
+        _ascensionInput.ItemSelected += index =>
+        {
+            _boardState = _boardState.WithAscension((int)index * 5);
+            RefreshAdvancedDetails();
+        };
         _runModeInput = MakeOption(new[] { "plain run" }, 0, 210);
         _eliteInput = MakeOption(new[] { "0+ elites", "1+ elites", "2+ elites", "3+ elites" }, 0, 210);
         _shopInput = MakeOption(new[] { "0+ shops", "1+ shops", "2+ shops" }, 0, 210);
@@ -293,6 +301,14 @@ public partial class SeedSearchOverlay : CanvasLayer
         _neowDetails.AddThemeConstantOverride("separation", 6);
         content.AddChild(_neowDetails);
         RefreshNeowDetails();
+
+        content.AddChild(MakeSeparator());
+        content.AddChild(MakeLabel("run layout & drop pins", 15, Text));
+        content.AddChild(MakeLabel("bosses, ancients, rewards, shops, relic bags and events use the same nested picker model", 11, MutedText));
+        _advancedDetails = new VBoxContainer();
+        _advancedDetails.AddThemeConstantOverride("separation", 6);
+        content.AddChild(_advancedDetails);
+        RefreshAdvancedDetails();
 
         content.AddChild(MakeSeparator());
         content.AddChild(MakeLabel("search controls", 15, Text));
@@ -482,9 +498,28 @@ public partial class SeedSearchOverlay : CanvasLayer
         }
 
         var query = ReadQuery();
-        var match = new SeedMatch(seed, _engine.Inspect(seed, query.Branch, BuildContext(query)));
+        var snapshot = GameSeedRuntimeBackend.TryInspect(
+            seed,
+            query.Branch,
+            query.Character,
+            query.Ascension,
+            BuildContext(query),
+            out var runtimeSnapshot,
+            out var runtimeReason)
+            ? runtimeSnapshot
+            : _engine.Inspect(seed, query.Branch, BuildContext(query));
+        if (runtimeSnapshot == null && !string.IsNullOrWhiteSpace(runtimeReason))
+        {
+            MainFile.Logger.Warn($"Game runtime preview unavailable for {seed}: {runtimeReason}");
+        }
+
+        var match = new SeedMatch(seed, snapshot);
+        _lastQuery = query;
         ApplyResults(new[] { match });
-        _inspectStatusLabel.Text = $"inspected {seed}";
+        _inspectStatusLabel.Text = snapshot.Backend == "game-runtime"
+            ? $"inspected {seed} · game runtime"
+            : $"inspected {seed} · reference engine";
+        SetStatus($"inspected {seed} · {BackendLabel(snapshot.Backend)}", Accent);
     }
 
     private void ApplyResults(IReadOnlyList<SeedMatch> results)
@@ -569,6 +604,7 @@ public partial class SeedSearchOverlay : CanvasLayer
         margin.AddChild(content);
 
         content.AddChild(MakeLabel("seed preview", 13, Accent));
+        content.AddChild(MakeLabel($"backend · {BackendLabel(match.Snapshot.Backend)}", 12, MutedText));
         content.AddChild(MakeLabel($"Act 1 path · {match.Snapshot.Act1Map}", 12, Text));
         content.AddChild(MakeLabel($"Neow detail · {match.Snapshot.NeowOffers}", 12, Text));
         content.AddChild(MakeLabel($"Ancients · {match.Snapshot.Ancients}    Bosses · {match.Snapshot.Bosses}", 12, Text));
@@ -587,6 +623,13 @@ public partial class SeedSearchOverlay : CanvasLayer
         content.AddChild(copy);
         return panel;
     }
+
+    private static string BackendLabel(string backend) => backend switch
+    {
+        "game-runtime" => "game runtime",
+        "reference-rng" => "reference RNG",
+        _ => backend,
+    };
 
     private void OpenSlotPicker(string slotId)
     {
@@ -612,6 +655,7 @@ public partial class SeedSearchOverlay : CanvasLayer
         }
 
         RefreshNeowDetails();
+        RefreshAdvancedDetails();
     }
 
     private void RefreshNeowDetails()
@@ -675,6 +719,69 @@ public partial class SeedSearchOverlay : CanvasLayer
         }
     }
 
+    private void RefreshAdvancedDetails()
+    {
+        if (_advancedDetails == null)
+        {
+            return;
+        }
+
+        ClearChildren(_advancedDetails);
+        foreach (var cluster in SearchTheSpireCatalog.Slots
+                     .Where(slot => slot.ParentId == null && slot.Cluster != null && slot.Cluster != "neow")
+                     .GroupBy(slot => slot.Cluster!, StringComparer.Ordinal))
+        {
+            _advancedDetails.AddChild(MakeLabel(cluster.Key, 12, Accent));
+            foreach (var slot in cluster)
+            {
+                AddAdvancedSlotRow(_advancedDetails, slot, 0);
+            }
+        }
+    }
+
+    private void AddAdvancedSlotRow(VBoxContainer container, SearchTheSpireSlot slot, int depth)
+    {
+        var row = new HBoxContainer();
+        row.AddThemeConstantOverride("separation", 8);
+        var label = MakeLabel(new string(' ', depth * 2) + slot.Label, 11, MutedText);
+        label.CustomMinimumSize = new Vector2(170, 34);
+        label.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+        row.AddChild(label);
+
+        var enabled = SearchTheSpireCatalog.IsEnabled(slot, _boardState);
+        var view = _boardState.DescribeSlot(slot.Id);
+        var selected = _boardState.Selected(slot.Id);
+        var selectedTitle = selected == null
+            ? "any"
+            : view.Options.FirstOrDefault(option => option.Id == selected)?.Title ?? selected;
+        var button = MakeButton(selectedTitle, $"Open {slot.Label} picker", 0);
+        button.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
+        if (!enabled)
+        {
+            button.Text = slot.RequiresAscension > _boardState.Ascension
+                ? $"A{slot.RequiresAscension} only"
+                : "select its parent first";
+            button.Disabled = true;
+        }
+        else if (view.RequiresCharacter)
+        {
+            button.Text = "choose a character first";
+            button.Disabled = true;
+            button.TooltipText = "this slot needs a character-specific card pool";
+        }
+        else
+        {
+            button.Pressed += () => OpenSlotPicker(slot.Id);
+        }
+
+        row.AddChild(button);
+        container.AddChild(row);
+        foreach (var child in _boardState.VisibleChildren(slot.Id))
+        {
+            AddAdvancedSlotRow(container, child, depth + 1);
+        }
+    }
+
     private void ToggleSpoilers()
     {
         _showSpoilers = !_showSpoilers;
@@ -717,8 +824,10 @@ public partial class SeedSearchOverlay : CanvasLayer
         _lastQuery = null;
         _lastResults = Array.Empty<SeedMatch>();
         _boardState = SearchTheSpireBoardState.Empty;
+        _ascensionInput.Selected = 0;
         _neowInputButton.Text = "any Neow offers";
         RefreshNeowDetails();
+        RefreshAdvancedDetails();
         _inspectInput.Text = string.Empty;
         _inspectStatusLabel.Text = string.Empty;
         _resultCountLabel.Text = "0 matches";

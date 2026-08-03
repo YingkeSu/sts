@@ -59,7 +59,23 @@ public sealed record SeedSnapshot(
     bool HasCurse,
     string NeowOfferId = "",
     string NeowGrantAId = "",
-    string NeowGrantBId = "");
+    string NeowGrantBId = "",
+    string Backend = "reference-rng",
+    string Act1MapId = "",
+    string Boss1Id = "",
+    string Boss2Id = "",
+    string Boss3Id = "",
+    string Boss3BId = "",
+    string Ancient2Id = "",
+    string Ancient3Id = "",
+    string Ancient2OfferId = "",
+    string Ancient3OfferId = "",
+    string RewardCardIds = "",
+    string ShopRelicIds = "",
+    string BagRelicIds = "",
+    string EventIds = "",
+    RunCharacter Character = RunCharacter.Any,
+    string DetailSpec = "");
 
 public sealed record SeedMatch(string Seed, SeedSnapshot Snapshot);
 
