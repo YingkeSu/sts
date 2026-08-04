@@ -117,6 +117,105 @@ if (!filteredPicker.Any(option => option.Id == "heftytablet"))
 
 Console.WriteLine("SearchTheSpire hidden-slot checks passed.");
 
+var emptyLayout = SearchTheSpireUiLayout.AdvancedGroups(SearchTheSpireBoardState.Empty);
+if (SearchTheSpireUiLayout.VisibleNeowChildren(SearchTheSpireBoardState.Empty).Count != 0 ||
+    emptyLayout.Any(group => group.HasSelection))
+{
+    throw new InvalidOperationException("The empty board leaked child pins or opened unrelated advanced groups.");
+}
+
+var expectedGroupOrder = new[] { "rewards", "relics", "events", "ancients", "route" };
+if (!emptyLayout.Select(group => group.Id).SequenceEqual(expectedGroupOrder, StringComparer.Ordinal))
+{
+    throw new InvalidOperationException("The advanced sections were not ordered like SearchTheSpire's board.");
+}
+
+var largeCapsuleLayout = SearchTheSpireUiLayout.VisibleNeowChildren(
+        SearchTheSpireBoardState.Empty.Select("neowOffer", "largecapsule"))
+    .Select(slot => slot.Id)
+    .ToHashSet(StringComparer.Ordinal);
+if (!largeCapsuleLayout.SetEquals(new[] { "largeRelicA", "largeRelicB" }))
+{
+    throw new InvalidOperationException("A selected Neow parent did not keep its follow-up slots local and minimal.");
+}
+
+var bonesLayout = SearchTheSpireBoardState.Empty.Select("neowOffer", "neowsbones");
+var bonesVisible = SearchTheSpireUiLayout.VisibleNeowChildren(bonesLayout).Select(slot => slot.Id).ToHashSet(StringComparer.Ordinal);
+if (!bonesVisible.SetEquals(new[] { "bonesGrantA", "bonesGrantB", "bonesCurse" }))
+{
+    throw new InvalidOperationException("Neow's Bones exposed unrelated follow-up options before a grant was selected.");
+}
+
+var bonesWithGrant = bonesLayout.Select("bonesGrantA", "heftytablet");
+if (!SearchTheSpireUiLayout.ShouldRenderChildren(SearchTheSpireCatalog.GetSlot("neowOffer"), bonesWithGrant) ||
+    !SearchTheSpireUiLayout.VisibleNeowChildren(bonesWithGrant).Any(slot => slot.Id == "bonesTabletCard"))
+{
+    throw new InvalidOperationException("Selecting a Neow grant did not reveal its local nested card condition.");
+}
+
+if (SeedSearchCopy.Get("search", SeedSearchLanguage.Chinese) != "搜索" ||
+    SeedSearchCopy.Get("search", SeedSearchLanguage.English) != "Search" ||
+    SeedSearchCopy.DisplayName("neowsbones", SeedSearchLanguage.Chinese) != "涅奥之骨")
+{
+    throw new InvalidOperationException("The Chinese/English display copy is not wired to the stable UI language boundary.");
+}
+
+var localizedOption = SeedSearchCopy.LocalizeOption(
+    new SearchTheSpireOption("largecapsule", "Large Capsule", "cursed offer"),
+    SeedSearchLanguage.Chinese);
+if (localizedOption.Title != "大型胶囊" || localizedOption.Section != "诅咒选项")
+{
+    throw new InvalidOperationException("Picker options did not localize at the display boundary.");
+}
+
+var localizedResultText = SeedSearchCopy.LocalizeText("Waterfall Giant / Orobas", SeedSearchLanguage.Chinese);
+if (!localizedResultText.Contains("瀑布巨人", StringComparison.Ordinal) ||
+    !localizedResultText.Contains("奥罗巴斯", StringComparison.Ordinal))
+{
+    throw new InvalidOperationException("Result display names did not pass through the Chinese localization boundary.");
+}
+
+if (SearchTheSpireUiLayout.MaxAscension != 10 ||
+    SearchTheSpireUiLayout.CharacterOrder.SequenceEqual(new[]
+    {
+        RunCharacter.Any,
+        RunCharacter.Ironclad,
+        RunCharacter.Silent,
+        RunCharacter.Regent,
+        RunCharacter.Necrobinder,
+        RunCharacter.Defect,
+    }) == false)
+{
+    throw new InvalidOperationException("The board exposed an ascension or character order that differs from SearchTheSpire.");
+}
+
+var broadSearch = query with
+{
+    StopAfter = 1,
+    MaxCandidates = 1_000,
+    MinimumElites = 0,
+    MinimumShops = 0,
+    MinimumRestSites = 0,
+    AncientFilter = SearchTheSpireUiLayout.AncientFilterIds[0],
+    BossFilter = SearchTheSpireUiLayout.BossFilterIds[0],
+};
+if (engine.Search(broadSearch, CancellationToken.None).Count == 0)
+{
+    throw new InvalidOperationException("A canonical any/any broad query unexpectedly returned no seed.");
+}
+
+if (engine.Search(broadSearch with { AncientFilter = "任意", BossFilter = "任意" }, CancellationToken.None).Count == 0)
+{
+    throw new InvalidOperationException("A saved Chinese any/any query was not normalized for compatibility.");
+}
+
+if (SearchTheSpireBoardState.Empty.WithAscension(20).Ascension != SearchTheSpireUiLayout.MaxAscension)
+{
+    throw new InvalidOperationException("Ascension values were not clamped to the game's A10 maximum.");
+}
+
+Console.WriteLine("SearchTheSpire layout and localization checks passed.");
+
 var hiddenCandidate = Enumerable.Range(0, 25_000)
     .Select(index => (Index: index, Snapshot: engine.Inspect(SeedSearchEngine.CreateSeed(SeedBranch.PublicBeta, index), SeedBranch.PublicBeta)))
     .First(candidate => candidate.Snapshot.NeowOfferId == "neowsbones" &&

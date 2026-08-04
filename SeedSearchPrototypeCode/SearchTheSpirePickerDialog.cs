@@ -26,6 +26,7 @@ public partial class SearchTheSpirePickerDialog : Control
     private PanelContainer _panel = null!;
     private Label _title = null!;
     private Action<string>? _onPick;
+    private SeedSearchLanguage _language = SeedSearchLanguage.English;
 
     public override void _Ready()
     {
@@ -63,6 +64,23 @@ public partial class SearchTheSpirePickerDialog : Control
         Visible = true;
         RefreshOptions();
         _search.GrabFocus();
+    }
+
+    public void SetLanguage(SeedSearchLanguage language)
+    {
+        _language = language;
+        if (_title == null)
+        {
+            return;
+        }
+
+        if (!Visible)
+        {
+            _title.Text = SeedSearchCopy.Get("picker.pick", _language);
+        }
+
+        _search.PlaceholderText = SeedSearchCopy.Get("picker.search", _language);
+        RefreshOptions();
     }
 
     public void Close()
@@ -108,16 +126,16 @@ public partial class SearchTheSpirePickerDialog : Control
         var header = new HBoxContainer();
         header.AddThemeConstantOverride("separation", 8);
         content.AddChild(header);
-        _title = MakeLabel("pick", 18, Text);
+        _title = MakeLabel(SeedSearchCopy.Get("picker.pick", _language), 18, Text);
         _title.SizeFlagsHorizontal = SizeFlags.ExpandFill;
         header.AddChild(_title);
-        var close = MakeButton("×", "Close picker", 38);
+        var close = MakeButton("×", SeedSearchCopy.Get("picker.close", _language), 38);
         close.Pressed += Close;
         header.AddChild(close);
 
         _search = new LineEdit
         {
-            PlaceholderText = "search…",
+            PlaceholderText = SeedSearchCopy.Get("picker.search", _language),
             CustomMinimumSize = new Vector2(0, 38),
         };
         _search.TextChanged += _ => RefreshOptions();
@@ -150,7 +168,7 @@ public partial class SearchTheSpirePickerDialog : Control
         var filtered = SearchTheSpirePicker.Filter(_options, _search.Text);
         if (filtered.Count == 0)
         {
-            _optionList.AddChild(MakeLabel("no matching options", 13, Muted));
+            _optionList.AddChild(MakeLabel(SeedSearchCopy.Get("picker.noMatch", _language), 13, Muted));
             return;
         }
 
@@ -160,7 +178,7 @@ public partial class SearchTheSpirePickerDialog : Control
             var collapsed = _collapsedSections.TryGetValue(sectionName, out var isCollapsed) && isCollapsed;
             var heading = MakeButton(
                 $"{(collapsed ? "▸" : "▾")} {sectionName} · {section.Count()}",
-                "Collapse or expand this option group",
+                SeedSearchCopy.Get("picker.collapse", _language),
                 0);
             heading.SizeFlagsHorizontal = SizeFlags.ExpandFill;
             heading.Alignment = HorizontalAlignment.Left;
@@ -184,7 +202,7 @@ public partial class SearchTheSpirePickerDialog : Control
                 button.Disabled = option.Blocked;
                 if (option.Blocked)
                 {
-                    button.TooltipText = option.BlockReason ?? "this option is not available for the current query";
+                    button.TooltipText = option.BlockReason ?? SeedSearchCopy.Get("blocked.parent", _language);
                     button.AddThemeColorOverride("font_color", Muted);
                 }
                 else

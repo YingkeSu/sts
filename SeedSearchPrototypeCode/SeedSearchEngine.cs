@@ -388,7 +388,7 @@ public sealed class SeedSearchEngine
         var token = context.Split('|', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .FirstOrDefault(value => value.StartsWith('A'));
         return token != null && int.TryParse(token[1..], out var ascension)
-            ? Math.Clamp(ascension, 0, 20)
+            ? Math.Clamp(ascension, 0, SearchTheSpireUiLayout.MaxAscension)
             : 0;
     }
 
@@ -593,7 +593,13 @@ public sealed class SeedSearchEngine
     }
 
     private static bool MatchesNamedFilter(string value, string filter) =>
-        string.IsNullOrWhiteSpace(filter) || filter.Equals("Any", StringComparison.OrdinalIgnoreCase) || value.Contains(filter, StringComparison.OrdinalIgnoreCase);
+        string.IsNullOrWhiteSpace(filter) ||
+        filter.Equals("Any", StringComparison.OrdinalIgnoreCase) ||
+        // Compatibility for saved searches created by the first Chinese UI
+        // pass. New queries use the canonical English `Any` token at the
+        // display/model boundary, but old saves must not become zero-result.
+        filter is "任意" or "任何" ||
+        value.Contains(filter, StringComparison.OrdinalIgnoreCase);
 
     private static bool ContainsMultiset(string actual, string expectedValue)
     {
