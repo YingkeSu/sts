@@ -16,10 +16,12 @@ public static class GameArtPreview
     private static readonly Dictionary<string, CardModel?> CardLookup = new(StringComparer.Ordinal);
     private static readonly Dictionary<string, RelicModel?> RelicLookup = new(StringComparer.Ordinal);
     private static readonly Dictionary<string, EncounterModel?> EncounterLookup = new(StringComparer.Ordinal);
+    private static readonly Dictionary<string, AncientEventModel?> AncientLookup = new(StringComparer.Ordinal);
     private static IReadOnlyList<CardModel>? _cards;
     private static IReadOnlyList<CharacterModel>? _characters;
     private static IReadOnlyList<RelicModel>? _relics;
     private static IReadOnlyList<EncounterModel>? _encounters;
+    private static IReadOnlyList<AncientEventModel>? _ancients;
 
     public static Texture2D? OptionArt(SearchTheSpireOption option) =>
         OptionArt(option.Id, option.OwnerCharacter, option.Section);
@@ -152,6 +154,132 @@ public static class GameArtPreview
         }
     }
 
+    /// <summary>
+    /// The game's own Act 1 map node icons. Regular points use
+    /// NNormalMapPoint.IconName paths; boss and ancient nodes use the rolled
+    /// EncounterModel.BossNodePath / AncientEventModel.MapIcon assets exactly
+    /// like NBossMapPoint/NAncientMapPoint do in-game.
+    /// </summary>
+    public static Texture2D? MapNodeIcon(string kind, string? bossId = "", string? ancientId = "")
+    {
+        if (kind == "boss")
+        {
+            return BossMapNodeIcon(bossId);
+        }
+
+        if (kind == "ancient")
+        {
+            return AncientMapNodeIcon(ancientId);
+        }
+
+        var name = kind switch
+        {
+            "monster" => "map_monster",
+            "elite" => "map_elite",
+            "rest" => "map_rest",
+            "shop" => "map_shop",
+            "treasure" => "map_chest",
+            "unknown" => "map_unknown",
+            _ => null,
+        };
+        return name == null ? null : LoadMapIcon(name);
+    }
+
+    private static Texture2D? BossMapNodeIcon(string? bossId)
+    {
+        if (string.IsNullOrWhiteSpace(bossId))
+        {
+            return null;
+        }
+
+        var encounter = FindBossEncounter(bossId);
+        if (encounter == null)
+        {
+            return null;
+        }
+
+        try
+        {
+            // NBossMapPoint uses the BossNodePath asset: the skeleton resource
+            // when it exists, otherwise the static node PNG placeholder.
+            if (encounter.BossNodeSpineResource != null)
+            {
+                return BossIcon(bossId);
+            }
+
+            var path = encounter.BossNodePath + ".png";
+            return LoadTexture(path) ?? BossIcon(bossId);
+        }
+        catch (Exception exception)
+        {
+            MainFile.Logger.Warn($"Could not load boss map node icon for {bossId}: {exception.Message}");
+            return BossIcon(bossId);
+        }
+    }
+
+    private static Texture2D? AncientMapNodeIcon(string? ancientId)
+    {
+        if (string.IsNullOrWhiteSpace(ancientId))
+        {
+            return null;
+        }
+
+        var ancient = FindAncient(ancientId);
+        if (ancient == null)
+        {
+            return null;
+        }
+
+        try
+        {
+            var path = ImageHelper.GetImagePath(
+                "packed/map/ancients/ancient_node_" +
+                ancient.Id.Entry.ToLowerInvariant() +
+                ".png");
+            return LoadTexture(path) ?? AncientIcon(ancient);
+        }
+        catch (Exception exception)
+        {
+            MainFile.Logger.Warn($"Could not load ancient map node icon for {ancientId}: {exception.Message}");
+            return AncientIcon(ancient);
+        }
+    }
+
+    private static Texture2D? AncientIcon(AncientEventModel ancient)
+    {
+        try
+        {
+            var path = ImageHelper.GetRoomIconPath(
+                MapPointType.Ancient,
+                RoomType.Event,
+                ancient.Id);
+            if (string.IsNullOrWhiteSpace(path) || !ResourceLoader.Exists(path))
+            {
+                return null;
+            }
+
+            return ResourceLoader.Load<Texture2D>(path);
+        }
+        catch (Exception exception)
+        {
+            MainFile.Logger.Warn($"Could not load ancient icon for {ancient.Id.Entry}: {exception.Message}");
+            return null;
+        }
+    }
+
+    private static Texture2D? LoadMapIcon(string name)
+    {
+        var path = $"res://images/atlases/ui_atlas.sprites/map/icons/{name}.tres";
+        return LoadTexture(path);
+    }
+
+    private static Texture2D? LoadTexture(string path)
+    {
+        return ResourceLoader.Exists(path)
+            ? ResourceLoader.Load<Texture2D>(path, null, ResourceLoader.CacheMode.Reuse)
+            : null;
+    }
+
     private static CardModel? FindCard(string optionId, string? ownerCharacter, string section)
     {
         var optionKey = Normalize(optionId);
@@ -235,6 +363,28 @@ public static class GameArtPreview
         }
 
         EncounterLookup[optionKey] = match;
+        return match;
+    }
+
+    private static AncientEventModel? FindAncient(string optionId)
+    {
+        var optionKey = Normalize(optionId);
+        if (AncientLookup.TryGetValue(optionKey, out var cached))
+        {
+            return cached;
+        }
+
+        AncientEventModel? match = null;
+        foreach (var ancient in AllAncients())
+        {
+            if (Normalize(ancient.Id.Entry) == optionKey)
+            {
+                match = ancient;
+                break;
+            }
+        }
+
+        AncientLookup[optionKey] = match;
         return match;
     }
 
@@ -344,6 +494,24 @@ public static class GameArtPreview
         }
 
         return _encounters;
+    }
+
+    private static IReadOnlyList<AncientEventModel> AllAncients()
+    {
+        if (_ancients == null)
+        {
+            try
+            {
+                _ancients = ModelDb.AllAncients.Distinct().ToList();
+            }
+            catch (Exception exception)
+            {
+                MainFile.Logger.Warn($"Ancient preview catalog unavailable: {exception.Message}");
+                _ancients = Array.Empty<AncientEventModel>();
+            }
+        }
+
+        return _ancients;
     }
 
     private static IReadOnlyList<CharacterModel> Characters()

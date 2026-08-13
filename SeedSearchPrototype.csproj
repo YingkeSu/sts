@@ -31,6 +31,7 @@
     <Compile Remove="SeedSearchPrototype/**" />
     <Compile Remove="tests/**" />
     <Compile Remove="tools/**" />
+    <Compile Remove="docs/**" />
     <None Include="SeedSearchPrototype.json" />
     <None Include="project.godot" />
   </ItemGroup>

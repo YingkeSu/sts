@@ -43,20 +43,15 @@ public static class GameSeedRuntimeBackend
 
             run.Act.GenerateRooms(run.Rng.UpFront, unlocks, false);
             var map = StandardActMap.CreateFor(run, false);
-            var points = map.GetAllMapPoints().ToArray();
-            var layout = BuildMapLayout(map);
-            var counts = points
-                .Select(ReadPointType)
-                .GroupBy(value => value, StringComparer.OrdinalIgnoreCase)
-                .ToDictionary(group => group.Key, group => group.Count(), StringComparer.OrdinalIgnoreCase);
             var boss = NormalizeModelId(ReadModelId(run.Act.BossEncounter));
+            var ancient = NormalizeModelId(ReadModelId(run.Act.Ancient));
             var mapId = ReadMapId(run.Act);
-            var eliteCount = GetCount(counts, "Elite");
-            var shopCount = GetCount(counts, "Shop");
-            var restSiteCount = GetCount(counts, "RestSite");
-            var mapSummary = $"{(mapId == "1" ? "Underdocks" : "Overgrowth")} · {points.Length} nodes · " +
+            var layout = BuildMapLayout(map, boss, ancient);
+            var eliteCount = layout.Nodes.Count(node => node.Kind == "elite");
+            var shopCount = layout.Nodes.Count(node => node.Kind == "shop");
+            var restSiteCount = layout.Nodes.Count(node => node.Kind == "rest");
+            var mapSummary = $"{(mapId == "1" ? "Underdocks" : "Overgrowth")} · {layout.Nodes.Count} nodes · " +
                              $"{eliteCount}E / {shopCount}$ / {restSiteCount}R";
-            var ancient = "Neow";
             snapshot = reference with
             {
                 Backend = "game-runtime",
@@ -94,13 +89,7 @@ public static class GameSeedRuntimeBackend
             new UnlockState(Array.Empty<string>(), Array.Empty<ModelId>(), 999);
     }
 
-    private static string ReadPointType(object point)
-    {
-        var value = ReadMember(point, "PointType") ?? ReadMember(point, "Type");
-        return value?.ToString() ?? "Unknown";
-    }
-
-    private static MapLayout BuildMapLayout(StandardActMap map)
+    private static MapLayout BuildMapLayout(StandardActMap map, string bossId, string ancientId)
     {
         var nodes = new List<MapNode>();
         var indices = new Dictionary<MapPoint, int>();
@@ -147,7 +136,7 @@ public static class GameSeedRuntimeBackend
         edges.Sort((first, second) => first.From != second.From
             ? first.From.CompareTo(second.From)
             : first.To.CompareTo(second.To));
-        return new MapLayout(nodes, edges);
+        return new MapLayout(nodes, edges, bossId, ancientId);
     }
 
     private static string MapKind(MapPointType type) => type switch
@@ -205,6 +194,4 @@ public static class GameSeedRuntimeBackend
             .Replace("_", string.Empty, StringComparison.Ordinal);
     }
 
-    private static int GetCount(IReadOnlyDictionary<string, int> counts, string type) =>
-        counts.TryGetValue(type, out var count) ? count : 0;
 }

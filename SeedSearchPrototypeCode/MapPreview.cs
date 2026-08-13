@@ -4,13 +4,16 @@ namespace SeedSearchPrototype;
 
 /// <summary>
 /// Draws a seed's Act 1 map the same way SearchTheSpire's inspector does:
-/// a 7-column node grid with dashed route edges and per-kind colored glyphs.
+/// a 7-column node grid with dashed route edges and the game's own room icons,
+/// falling back to colored glyphs when the game assets are unavailable.
 /// </summary>
 public sealed partial class MapPreview : Control
 {
     private const float CellWidth = 40f;
     private const float RowHeight = 36f;
     private const float NodeRadius = 11f;
+    private const float IconSize = 26f;
+    private const float BossIconSize = 34f;
     private const float Pad = 18f;
     private static readonly Color EdgeColor = new("888888");
     private static readonly Color GlyphColor = new("ffffff");
@@ -30,6 +33,7 @@ public sealed partial class MapPreview : Control
 
     private readonly MapLayout _layout;
     private readonly Vector2[] _positions;
+    private readonly Texture2D?[] _icons;
 
     public MapPreview(MapLayout layout)
     {
@@ -44,6 +48,7 @@ public sealed partial class MapPreview : Control
 
         CustomMinimumSize = new Vector2(7 * CellWidth + Pad * 2, (maxRow + 1) * RowHeight + Pad * 2);
         _positions = new Vector2[layout.Nodes.Count];
+        _icons = new Texture2D?[layout.Nodes.Count];
         for (var index = 0; index < layout.Nodes.Count; index++)
         {
             var node = layout.Nodes[index];
@@ -51,6 +56,23 @@ public sealed partial class MapPreview : Control
                 Pad + node.Col * CellWidth + CellWidth / 2f,
                 Pad + (maxRow - node.Row) * RowHeight + RowHeight / 2f);
             AddTooltipNode(node, _positions[index]);
+            var icon = GameArtPreview.MapNodeIcon(node.Kind, _layout.BossId, _layout.AncientId);
+            _icons[index] = icon;
+            if (icon == null)
+            {
+                continue;
+            }
+
+            var size = node.Kind == "boss" ? BossIconSize : IconSize;
+            AddChild(new TextureRect
+            {
+                Texture = icon,
+                Position = _positions[index] - Vector2.One * size / 2f,
+                Size = Vector2.One * size,
+                ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
+                StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
+                MouseFilter = MouseFilterEnum.Ignore,
+            });
         }
     }
 
@@ -83,6 +105,11 @@ public sealed partial class MapPreview : Control
         for (var index = 0; index < _layout.Nodes.Count; index++)
         {
             var node = _layout.Nodes[index];
+            if (_icons[index] != null)
+            {
+                continue;
+            }
+
             var style = KindStyle.TryGetValue(node.Kind, out var value)
                 ? value
                 : (Color: new Color("000000"), Glyph: "·");

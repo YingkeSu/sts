@@ -23,7 +23,8 @@ if (!rngOutputs.SequenceEqual(new ulong[] { 11091344671253066420UL, 137939973101
 var first = engine.Inspect("000000000000", SeedBranch.PublicBeta);
 var second = engine.Inspect("000000000000", SeedBranch.PublicBeta);
 
-if (first != second)
+if (!ReferenceEquals(first.Map, null) &&
+    JsonSerializer.Serialize(first) != JsonSerializer.Serialize(second))
 {
     throw new InvalidOperationException("Seed inspection is not deterministic.");
 }
@@ -76,20 +77,47 @@ var query = new SeedQuery(
     StopAfter: 3,
     StartOffset: 0,
     MaxCandidates: 10_000,
-    MinimumElites: 2,
-    MinimumShops: 1,
-    MinimumRestSites: 1,
+    MinimumElites: 0,
+    MinimumShops: 0,
+    MinimumRestSites: 0,
     NeowFilter: NeowFilter.HasBlessing,
     AncientFilter: "Any",
     BossFilter: "Any");
 var matches = engine.Search(query, CancellationToken.None);
 
-if (matches.Count > query.StopAfter || matches.Any(match => match.Snapshot.EliteCount < 2 || match.Snapshot.ShopCount < 1 || !match.Snapshot.HasBlessing))
+if (matches.Count > query.StopAfter || matches.Any(match => !match.Snapshot.HasBlessing))
 {
     throw new InvalidOperationException("Seed search returned a result outside the query constraints.");
 }
 
 Console.WriteLine($"Seed search core checks passed: {matches.Count} matches.");
+
+// Map-based minimums force the exact v0.110.1 map generation per candidate;
+// at A10 every real map targets 8 elites, so a strict filter must not admit a
+// snapshot whose counts came from the old fake map RNG.
+var strictMapQuery = new SeedQuery(
+    SeedBranch.PublicBeta,
+    GameApiVersion: SeedSearchEngine.PinnedGameApiVersion,
+    Character: RunCharacter.Any,
+    Ascension: 10,
+    RunMode: RunMode.Plain,
+    StopAfter: 3,
+    StartOffset: 0,
+    MaxCandidates: 100,
+    MinimumElites: 8,
+    MinimumShops: 0,
+    MinimumRestSites: 0,
+    NeowFilter: NeowFilter.Any,
+    AncientFilter: "Any",
+    BossFilter: "Any");
+var strictMapMatches = engine.Search(strictMapQuery, CancellationToken.None);
+if (strictMapMatches.Count == 0 ||
+    strictMapMatches.Any(match => match.Snapshot.Map == null || match.Snapshot.EliteCount < 8))
+{
+    throw new InvalidOperationException("A strict map-minimum search did not use the real Act 1 map counts.");
+}
+
+Console.WriteLine("Map-minimum search uses real StandardActMap counts.");
 
 // [issue-5] Old Chinese-UI saves can still carry the localized display text
 // (`任意`/`任何`) in AncientFilter/BossFilter. They must behave exactly like
@@ -189,7 +217,10 @@ if (!filteredPicker.Any(option => option.Id == "heftytablet"))
 Console.WriteLine("SearchTheSpire hidden-slot checks passed.");
 
 var hiddenCandidate = Enumerable.Range(0, 25_000)
-    .Select(index => (Index: index, Snapshot: engine.Inspect(SeedSearchEngine.CreateSeed(SeedBranch.PublicBeta, index), SeedBranch.PublicBeta)))
+    .Select(index => (Index: index, Snapshot: engine.Inspect(
+        SeedSearchEngine.CreateSeed(SeedBranch.PublicBeta, index),
+        SeedBranch.PublicBeta,
+        generateMap: false)))
     .First(candidate => candidate.Snapshot.NeowOfferId == "neowsbones" &&
                         candidate.Snapshot.NeowGrantAId.Length > 0 &&
                         candidate.Snapshot.NeowGrantBId.Length > 0);
@@ -718,12 +749,16 @@ var layout = new MapLayout(
         new(2, 1, "monster"),
         new(3, 15, "boss"),
     },
-    new List<MapEdge> { new(0, 1), new(1, 2) });
+    new List<MapEdge> { new(0, 1), new(1, 2) },
+    BossId: "vantom",
+    AncientId: "neow");
 var layoutJson = JsonSerializer.Serialize(layout);
 var layoutBack = JsonSerializer.Deserialize<MapLayout>(layoutJson);
 if (layoutBack == null ||
     !layoutBack.Nodes.SequenceEqual(layout.Nodes) ||
-    !layoutBack.Edges.SequenceEqual(layout.Edges))
+    !layoutBack.Edges.SequenceEqual(layout.Edges) ||
+    layoutBack.BossId != "vantom" ||
+    layoutBack.AncientId != "neow")
 {
     throw new InvalidOperationException("Map layout JSON round-trip regressed.");
 }
@@ -735,7 +770,10 @@ var parityRows = JsonSerializer.Deserialize<List<LayoutParityRow>>(
 var parityMismatches = new List<string>();
 foreach (var row in parityRows)
 {
-    var snap = engine.Inspect(row.Seed, SeedBranch.PublicBeta);
+    var snap = engine.Inspect(
+        row.Seed,
+        SeedBranch.PublicBeta,
+        $"{SeedSearchEngine.PinnedGameApiVersion}|Any|A0|Plain|");
     var fields = new (string Name, string Actual, string Expected)[]
     {
         ("act1_map", snap.Act1MapId, row.Act1Map.ToString()),
@@ -746,9 +784,11 @@ foreach (var row in parityRows)
         ("ancient2", snap.Ancient2Id, row.Ancient2),
         ("ancient3", snap.Ancient3Id, row.Ancient3),
     };
-    // Elite/shop/rest node counts are still an approximation: the reference
-    // engine does not yet port StandardActMap generation, so they are not
-    // part of this parity assertion.
+    fields = fields.Append(("elite", snap.EliteCount.ToString(), row.Elite.ToString()))
+        .Append(("shop", snap.ShopCount.ToString(), row.Shop.ToString()))
+        .Append(("rest", snap.RestSiteCount.ToString(), row.Rest.ToString()))
+        .Append(("nodes", snap.Map?.Nodes.Count.ToString() ?? "null", row.Nodes.ToString()))
+        .ToArray();
     var bad = fields
         .Where(pair => Norm(pair.Actual) != Norm(pair.Expected))
         .Select(pair => $"{pair.Name}:{Norm(pair.Actual)}!={Norm(pair.Expected)}")
@@ -756,6 +796,20 @@ foreach (var row in parityRows)
     if (bad.Length > 0)
     {
         parityMismatches.Add($"{row.Seed}: {string.Join(", ", bad)}");
+    }
+
+    if (snap.Map == null || MapLayoutDigest(snap.Map) != row.LayoutDigest)
+    {
+        parityMismatches.Add($"{row.Seed}: layout_digest does not match the frozen v0.110.1 layout");
+    }
+
+    if (snap.Map == null ||
+        !string.Equals(Norm(snap.Map.BossId), Norm(row.Boss1), StringComparison.Ordinal) ||
+        !string.Equals(Norm(snap.Map.AncientId), "neow", StringComparison.Ordinal))
+    {
+        parityMismatches.Add(
+            $"{row.Seed}: layout boss/ancient identity {snap.Map?.BossId}/{snap.Map?.AncientId} " +
+            $"does not match {row.Boss1}/neow");
     }
 }
 
@@ -766,7 +820,99 @@ if (parityMismatches.Count > 0)
         string.Join("\n", parityMismatches.Take(8)));
 }
 
-Console.WriteLine("SearchTheSpire public-beta layout parity checks passed.");
+var summaryMismatches = parityRows
+    .Select(row =>
+    {
+        var snapshot = engine.Inspect(
+            row.Seed,
+            SeedBranch.PublicBeta,
+            $"{SeedSearchEngine.PinnedGameApiVersion}|Any|A0|Plain|");
+        var mapName = snapshot.Act1MapId == "1" ? "Underdocks" : "Overgrowth";
+        var expected = $"{mapName} · {row.Nodes} nodes · {row.Elite}E / {row.Shop}$ / {row.Rest}R";
+        return (Seed: row.Seed, Snapshot: snapshot, Expected: expected);
+    })
+    .Where(item => item.Snapshot.Act1Map != item.Expected)
+    .Select(item => $"{item.Seed}: {item.Snapshot.Act1Map} != {item.Expected}")
+    .ToArray();
+if (summaryMismatches.Length > 0)
+{
+    throw new InvalidOperationException(
+        "Reference Act 1 map summary diverged from the runtime summary shape:\n" +
+        string.Join("\n", summaryMismatches.Take(5)));
+}
+
+Console.WriteLine("SearchTheSpire public-beta layout parity checks passed (map generation ported from v0.110.1).");
+
+// The real StandardActMap target for A1+ is 8 elite rooms (SwarmingElites),
+// while A0 keeps 5. The old reference engine drew these counts from an
+// unrelated fake map RNG, so A10 searches could surface maps the game would
+// never generate.
+var a0Snapshot = engine.Inspect("000000000000", SeedBranch.PublicBeta, $"{SeedSearchEngine.PinnedGameApiVersion}|Any|A0|Plain|");
+var a10Snapshot = engine.Inspect("000000000000", SeedBranch.PublicBeta, $"{SeedSearchEngine.PinnedGameApiVersion}|Any|A10|Plain|");
+if (a0Snapshot.EliteCount != 5 ||
+    a10Snapshot.EliteCount != 8 ||
+    a10Snapshot.ShopCount != 3 ||
+    a10Snapshot.RestSiteCount is < 6 or > 14)
+{
+    throw new InvalidOperationException(
+        $"SwarmingElites map targets are wrong: A0 {a0Snapshot.EliteCount}E/{a0Snapshot.ShopCount}$/{a0Snapshot.RestSiteCount}R, " +
+        $"A10 {a10Snapshot.EliteCount}E/{a10Snapshot.ShopCount}$/{a10Snapshot.RestSiteCount}R");
+}
+
+if (!a0Snapshot.HasCurse || !a0Snapshot.HasBlessing)
+{
+    throw new InvalidOperationException(
+        "Neow blessing/curse category flags no longer report the always-present offers.");
+}
+
+// "猎人 a10 · 树叶药膏 · 肾上腺素 + 腐蚀波" must find seeds whose reference
+// Act 1 map is the real game map, not the old fake route summary.
+var exampleQuery = new SeedQuery(
+    SeedBranch.PublicBeta,
+    GameApiVersion: SeedSearchEngine.PinnedGameApiVersion,
+    Character: RunCharacter.Silent,
+    Ascension: 10,
+    RunMode: RunMode.Plain,
+    StopAfter: 3,
+    StartOffset: 0,
+    MaxCandidates: 200_000,
+    MinimumElites: 0,
+    MinimumShops: 0,
+    MinimumRestSites: 0,
+    NeowFilter: NeowFilter.Any,
+    AncientFilter: "Any",
+    BossFilter: "Any",
+    HiddenSpec: "char=silent,neowOffer=leafypoultice,poultice_set=adrenaline+corrosivewave");
+var exampleMatches = engine.Search(exampleQuery, CancellationToken.None);
+if (exampleMatches.Count == 0)
+{
+    throw new InvalidOperationException("Silent A10 Leafy Poultice (Adrenaline + Corrosive Wave) found no seed.");
+}
+
+foreach (var match in exampleMatches)
+{
+    var map = match.Snapshot.Map;
+    var poulticeSet = match.Snapshot.DetailSpec
+        .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+        .FirstOrDefault(fragment => fragment.StartsWith("poultice_set=", StringComparison.Ordinal))?
+        .Split('=', 2)[1];
+    var poulticeCards = poulticeSet?
+        .Split('+', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+        .ToHashSet(StringComparer.OrdinalIgnoreCase);
+    if (map == null ||
+        match.Snapshot.EliteCount != 8 ||
+        match.Snapshot.ShopCount != 3 ||
+        match.Snapshot.RestSiteCount is < 6 or > 14 ||
+        map.Nodes.Count <= 50 ||
+        poulticeCards == null ||
+        !poulticeCards.Contains("adrenaline") ||
+        !poulticeCards.Contains("corrosivewave"))
+    {
+        throw new InvalidOperationException($"Example seed {match.Seed} has a non-game map: {match.Snapshot.Act1Map}");
+    }
+}
+
+Console.WriteLine("SwarmingElites, Neow flags and Silent A10 Leafy Poultice example checks passed.");
 
 // [issue-1] Parallel search must keep the same observable semantics as the
 // sequential reference engine: identical seed sequence, exact StopAfter cap,
@@ -780,7 +926,7 @@ var issue1Query = new SeedQuery(
     StopAfter: 5,
     StartOffset: 1000,
     MaxCandidates: 20_000,
-    MinimumElites: 2,
+    MinimumElites: 0,
     MinimumShops: 0,
     MinimumRestSites: 0,
     NeowFilter: NeowFilter.HasBlessing,
@@ -798,7 +944,7 @@ if (!sequentialReference.Select(match => match.Seed).SequenceEqual(parallelMatch
 }
 
 if (parallelMatches.Count != issue1Query.StopAfter ||
-    parallelMatches.Any(match => match.Snapshot.EliteCount < 2 || !match.Snapshot.HasBlessing))
+    parallelMatches.Any(match => !match.Snapshot.HasBlessing))
 {
     throw new InvalidOperationException("Parallel seed search did not honor StopAfter with filtered matches.");
 }
@@ -892,6 +1038,13 @@ foreach (var budget in new long[] { 100_000L, 1_000_000L })
 static string Norm(string value) =>
     new(value.Where(char.IsLetterOrDigit).Select(char.ToLowerInvariant).ToArray());
 
+static string MapLayoutDigest(MapLayout map)
+{
+    var nodes = string.Join('|', map.Nodes.Select(node => $"{node.Col},{node.Row}:{node.Kind}"));
+    var edges = string.Join(',', map.Edges.Select(edge => $"{edge.From}>{edge.To}"));
+    return $"{nodes};;{edges}";
+}
+
 static IReadOnlyList<SeedMatch> SequentialSearchReference(
     SeedSearchEngine engine,
     SeedQuery query,
@@ -902,20 +1055,22 @@ static IReadOnlyList<SeedMatch> SequentialSearchReference(
     var budget = Math.Max(1, query.MaxCandidates);
     var start = Math.Max(0, query.StartOffset);
     var context = $"{query.GameApiVersion}|{query.Character}|A{query.Ascension}|{query.RunMode}|{query.HiddenSpec}";
+    var needsMap = query.MinimumElites > 0 || query.MinimumShops > 0 || query.MinimumRestSites > 0;
 
     for (long offset = 0; offset < budget && matches.Count < stopAfter; offset++)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
         var seed = SeedSearchEngine.CreateSeed(query.Branch, start + offset);
-        var snapshot = engine.Inspect(seed, query.Branch, context);
-        if (snapshot.EliteCount >= query.MinimumElites &&
-            snapshot.ShopCount >= query.MinimumShops &&
-            snapshot.RestSiteCount >= query.MinimumRestSites &&
+        var snapshot = engine.Inspect(seed, query.Branch, context, needsMap);
+        if ((query.MinimumElites == 0 || (snapshot.Map != null && snapshot.EliteCount >= query.MinimumElites)) &&
+            (query.MinimumShops == 0 || (snapshot.Map != null && snapshot.ShopCount >= query.MinimumShops)) &&
+            (query.MinimumRestSites == 0 || (snapshot.Map != null && snapshot.RestSiteCount >= query.MinimumRestSites)) &&
             (query.NeowFilter != NeowFilter.HasBlessing || snapshot.HasBlessing) &&
             (query.NeowFilter != NeowFilter.HasCurse || snapshot.HasCurse))
         {
-            matches.Add(new SeedMatch(seed, snapshot));
+            var full = snapshot.Map == null ? engine.Inspect(seed, query.Branch, context) : snapshot;
+            matches.Add(new SeedMatch(seed, full));
         }
     }
 
@@ -934,4 +1089,5 @@ internal sealed record LayoutParityRow(
     [property: JsonPropertyName("elite")] int Elite,
     [property: JsonPropertyName("shop")] int Shop,
     [property: JsonPropertyName("rest")] int Rest,
-    [property: JsonPropertyName("nodes")] int Nodes);
+    [property: JsonPropertyName("nodes")] int Nodes,
+    [property: JsonPropertyName("layout_digest")] string LayoutDigest = "");

@@ -96,6 +96,10 @@
    `MapPoint.coord` 的 `col/row` 直接用于渲染。
 
 参考实现：[`GameSeedRuntime.cs`](../SeedSearchPrototypeCode/GameSeedRuntime.cs)
+`StandardActMap`、`MapPathPruning`、`MapPostProcessing`、地图 UI 图标加载等
+类型的 v0.110.1 反编译快照见
+[`docs/sts2-decompile/v0.110.1/`](./sts2-decompile/v0.110.1/README.md)，
+reference-RNG 引擎移植地图时必须与这些快照逐位对齐。
 
 ## 种子编码与参考 RNG
 
@@ -163,7 +167,8 @@
   的 stream 消耗；战斗 tag 常量来自社区 v0.107.1 反编译。
 - 回归夹具 `tests/SeedLayoutParity.json` 固定 15 个种子，`tests/Program.cs`
   归一化后比对 `act1_map`、`boss1`、`boss2`、`boss3`、`boss3b`、
-  `ancient2`、`ancient3`。
+  `ancient2`、`ancient3`，并逐字段断言 `elite`、`shop`、`rest`、`nodes` 与
+  `layout_digest`（节点坐标+类型+连边的完整摘要）。
 
 回归命令：
 
@@ -174,9 +179,10 @@
 
 ### 证据边界
 
-当前只断言地图 id、首领与 Ancient；elite/shop/rest 数量仍是近似值（尚未移植
-完整 `StandardActMap`），夹具中虽有记录但刻意不参与 parity 断言，不能宣称
-与 SearchTheSpire 在这些字段上完全一致。
+`ReferenceActMap` 已完整移植 v0.110.1 `StandardActMap`（含
+`MapPathPruning` 与 `MapPostProcessing`），`elite/shop/rest/nodes` 与
+`layout_digest` 全部参与夹具 parity 断言；只有后续游戏版本更新时才需要重新
+对照反编译和站点 WASM。
 
 ## 证据边界
 

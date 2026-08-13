@@ -83,7 +83,11 @@ public sealed record MapNode(int Col, int Row, string Kind);
 
 public sealed record MapEdge(int From, int To);
 
-public sealed record MapLayout(List<MapNode> Nodes, List<MapEdge> Edges);
+public sealed record MapLayout(
+    List<MapNode> Nodes,
+    List<MapEdge> Edges,
+    string BossId = "",
+    string AncientId = "");
 
 public sealed record SeedMatch(string Seed, SeedSnapshot Snapshot);
 

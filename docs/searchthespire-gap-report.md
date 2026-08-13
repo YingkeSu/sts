@@ -26,7 +26,7 @@
 | Save / Popular / Saved restore | 保存、热门统计、打开后恢复 board 与结果 | 已有；恢复时从 HiddenSpec 重建父子控件。 |
 | Share / Clear | 复制稳定查询规格；清空模型和所有可见控件 | 已有。 |
 | Search / Cancel / progress | 后台本地扫描、进度、取消 | 已有。 |
-| Inspect | 单种子预览，运行时可用时显示 game-runtime，否则 reference-RNG | 已有；不把批量 reference projection 伪装成运行时证明。 |
+| Inspect | 单种子预览，运行时可用时显示 game-runtime，否则 reference-RNG | 已有；批量 reference 地图已移植 `StandardActMap` 并与运行时夹具逐字段对齐，单种子仍可切到 game-runtime 复核。 |
 | Language selector | 中文/English，即时重建显示层 | 已有；语言切换不改变稳定 ID、查询或结果。 |
 
 ## 已修复的行为差距
@@ -38,8 +38,13 @@
 
 ## 明确保留的差距
 
-- 当前没有复制 SearchTheSpire 的图片素材，也没有把网页素材打包进 Mod。角色/首领仍是文字紧凑按钮；这样避免绕过游戏/Mod API读取不受支持的网页资源。若下一步要补 art cell，应先从已安装 `sts2.dll`/BaseLib 的公开运行时资源接口确认用法。
-- SearchTheSpire 的 WASM 搜索实现和完整游戏内容表不是公开稳定 Mod API。当前批量扫描保留本地 reference-RNG backend；单种子 Inspect 才尝试游戏运行时 backend。
+- 地图节点使用游戏自身资源（`NNormalMapPoint.IconName` 对应的
+  `res://images/atlases/ui_atlas.sprites/map/icons/*.tres`、Ancient 的
+  `packed/map/ancients/ancient_node_neow.png`），没有复制网页素材。角色/首领
+  picker 仍是文字紧凑按钮。
+- SearchTheSpire 的 WASM 搜索实现和完整游戏内容表不是公开稳定 Mod API。批量
+  扫描保留本地 reference-RNG backend，其中 Act 1 地图已移植 v0.110.1
+  `StandardActMap` 并与游戏运行时夹具逐位对齐；单种子 Inspect 仍尝试游戏运行时 backend。
 - SearchTheSpire 的页面是浏览器响应式布局，Godot 面板使用固定的游戏内窗口和滚动列，因此像素级尺寸不会完全一致；交互顺序、父子可见性、分组和键行为已按源码对齐。
 
 ## 验证记录

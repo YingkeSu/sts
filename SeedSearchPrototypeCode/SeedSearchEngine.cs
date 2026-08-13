@@ -1,5 +1,3 @@
-using System.Text;
-
 namespace SeedSearchPrototype;
 
 /// <summary>
@@ -231,11 +229,17 @@ public sealed class SeedSearchEngine
                             cancellationToken.ThrowIfCancellationRequested();
 
                             var seed = SeedCodec.FromIndex(query.Branch, start + offset);
-                            var snapshot = Inspect(seed, query.Branch, context);
+                            var needsMap = query.MinimumElites > 0 ||
+                                           query.MinimumShops > 0 ||
+                                           query.MinimumRestSites > 0;
+                            var snapshot = Inspect(seed, query.Branch, context, needsMap);
                             localChecked = offset - offsetStart + 1;
                             if (Matches(query, snapshot))
                             {
-                                local.Add(new SeedMatch(seed, snapshot));
+                                var full = snapshot.Map == null
+                                    ? Inspect(seed, query.Branch, context)
+                                    : snapshot;
+                                local.Add(new SeedMatch(seed, full));
                                 if (local.Count >= stopAfter)
                                 {
                                     break;
@@ -273,7 +277,11 @@ public sealed class SeedSearchEngine
         return results;
     }
 
-    public SeedSnapshot Inspect(string rawSeed, SeedBranch branch, string context = "")
+    public SeedSnapshot Inspect(
+        string rawSeed,
+        SeedBranch branch,
+        string context = "",
+        bool generateMap = true)
     {
         var seed = string.IsNullOrWhiteSpace(rawSeed)
             ? SeedCodec.FromIndex(branch, 0)
@@ -283,41 +291,10 @@ public sealed class SeedSearchEngine
         var baseSeed = branch == SeedBranch.PublicBeta
             ? Sts2ReferenceRng.HashCode64(seed)
             : unchecked((ulong)(uint)Sts2ReferenceRng.HashCode(seed));
-        // Keep the old map summary draws exactly as before; only the
-        // authoritative map choice comes from the act_selection stream.
-        var mapRng = Sts2ReferenceRng.Create(baseSeed);
-        Sts2ReferenceRng.NextInt(ref mapRng, 2);
-        var eliteCount = 1 + Sts2ReferenceRng.NextInt(ref mapRng, 3);
-        var shopCount = Sts2ReferenceRng.NextInt(ref mapRng, 3);
-        var restSiteCount = 1 + Sts2ReferenceRng.NextInt(ref mapRng, 3);
-        var hasBlessing = Sts2ReferenceRng.NextInt(ref mapRng, 3) != 0;
-        var hasCurse = Sts2ReferenceRng.NextInt(ref mapRng, 4) == 0;
-
-        var mapSlots = new[] { 'M', 'M', '?', '$', 'R', 'M', 'E', 'T', '?', 'M', 'B' };
-        var map = new StringBuilder();
-        foreach (var slot in mapSlots)
-        {
-            var roll = Sts2ReferenceRng.NextInt(ref mapRng, 100);
-            var display = slot;
-            if (slot == 'M' && roll < 18)
-            {
-                display = 'U';
-            }
-            else if (slot == 'R' && roll < 35)
-            {
-                display = '$';
-            }
-
-            if (map.Length > 0)
-            {
-                map.Append(' ');
-            }
-
-            map.Append(display);
-        }
 
         var actSelectionRng = Sts2ReferenceRng.Create(baseSeed + StreamHash(branch, "act_selection"));
         var act1MapId = Sts2ReferenceRng.NextInt(ref actSelectionRng, 2).ToString();
+        var ascension = ParseAscension(context);
 
         // Bosses, ancients and the A10 second boss are rolled from the
         // UpFront stream only after the shared/player relic shuffles, the
@@ -346,6 +323,22 @@ public sealed class SeedSearchEngine
         var boss1Id = (act1MapId == "1" ? UnderdocksBosses : OvergrowthBosses)
             [Sts2ReferenceRng.NextInt(ref layoutRng, 3)];
         Advance(ref layoutRng, 1); // Act 1's ancient is always Neow.
+
+        MapLayout? layout = null;
+        var eliteCount = -1;
+        var shopCount = -1;
+        var restSiteCount = -1;
+        var mapSummary = "";
+        if (generateMap)
+        {
+            var mapStreamSeed = unchecked(baseSeed + StreamHash(branch, "act_1_map"));
+            layout = ReferenceActMap.Generate(act1MapId, mapStreamSeed, ascension, boss1Id);
+            eliteCount = layout.Nodes.Count(node => node.Kind == "elite");
+            shopCount = layout.Nodes.Count(node => node.Kind == "shop");
+            restSiteCount = layout.Nodes.Count(node => node.Kind == "rest");
+            mapSummary = $"{(act1MapId == "1" ? "Underdocks" : "Overgrowth")} · " +
+                         $"{layout.Nodes.Count} nodes · {eliteCount}E / {shopCount}$ / {restSiteCount}R";
+        }
 
         // Act 2.
         Advance(ref layoutRng, 10 + 18 - 1);
@@ -395,6 +388,11 @@ public sealed class SeedSearchEngine
         var offer = cursedOffer;
         var grantA = "";
         var grantB = "";
+        // Neow always shows two bonus offers and one cursed offer, so both
+        // category flags are present on every candidate. The specific pinned
+        // offer (if any) is enforced by HiddenSpec via `neow=` / `bonus=`.
+        var hasCurse = true;
+        var hasBlessing = true;
         if (offer == "neowsbones")
         {
             var grantPool = GrantRelics.ToList();
@@ -433,7 +431,6 @@ public sealed class SeedSearchEngine
         var shopRelics = string.Join('+', shopRelicValues);
         var bagRelics = string.Join('+', bagRelicValues);
         var eventIds = string.Join('+', eventValues);
-        var ascension = ParseAscension(context);
         var kaleidoDistinct = bonusA == "kaleidoscope" || bonusB == "kaleidoscope"
             ? SimulateKaleidoCards(baseSeed, branch, character, ascension)
             : null;
@@ -450,7 +447,7 @@ public sealed class SeedSearchEngine
 
         return new SeedSnapshot(
             seed,
-            $"{map}  ·  {eliteCount}E / {shopCount}$ / {restSiteCount}R",
+            mapSummary,
             neow,
             ancients,
             $"{Humanize(boss1Id)} / {Humanize(boss2Id)} / {Humanize(boss3Id)}",
@@ -478,7 +475,8 @@ public sealed class SeedSearchEngine
             eventIds,
             character,
             detailSpec,
-            ascension);
+            ascension,
+            layout);
     }
 
     private static string BuildContext(SeedQuery query) =>
@@ -774,7 +772,9 @@ public sealed class SeedSearchEngine
     private static int ParseAscension(string context)
     {
         var token = context.Split('|', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .FirstOrDefault(value => value.StartsWith('A'));
+            .FirstOrDefault(value => value.Length > 1 &&
+                                     value[0] == 'A' &&
+                                     int.TryParse(value[1..], out _));
         return token != null && int.TryParse(token[1..], out var ascension)
             ? Math.Clamp(ascension, 0, SearchTheSpireBoardState.MaxAscension)
             : 0;
@@ -922,9 +922,17 @@ public sealed class SeedSearchEngine
             return false;
         }
 
-        if (snapshot.EliteCount < query.MinimumElites ||
-            snapshot.ShopCount < query.MinimumShops ||
-            snapshot.RestSiteCount < query.MinimumRestSites)
+        if (query.MinimumElites > 0 && (snapshot.Map == null || snapshot.EliteCount < query.MinimumElites))
+        {
+            return false;
+        }
+
+        if (query.MinimumShops > 0 && (snapshot.Map == null || snapshot.ShopCount < query.MinimumShops))
+        {
+            return false;
+        }
+
+        if (query.MinimumRestSites > 0 && (snapshot.Map == null || snapshot.RestSiteCount < query.MinimumRestSites))
         {
             return false;
         }
@@ -1119,190 +1127,4 @@ public sealed class SeedSearchEngine
         }
     }
 
-    private static class Sts2ReferenceRng
-    {
-        public static int HashCode(string value)
-        {
-            uint first = 352654597;
-            uint second = first;
-            for (var index = 0; index < value.Length; index += 2)
-            {
-                first = unchecked((first * 33) ^ value[index]);
-                if (index + 1 >= value.Length)
-                {
-                    break;
-                }
-
-                second = unchecked((second * 33) ^ value[index + 1]);
-            }
-
-            return unchecked((int)(first + second * 1566083941u));
-        }
-
-        public static ulong HashCode64(string value)
-        {
-            var bytes = Encoding.UTF8.GetBytes(value);
-            var offset = 0;
-            var length = bytes.Length;
-            ulong hash;
-
-            if (length >= 32)
-            {
-                var v1 = unchecked(Prime5 + Prime1 + Prime2);
-                var v2 = unchecked(Prime5 + Prime2);
-                var v3 = Prime5;
-                var v4 = unchecked(Prime5 - Prime1);
-                var limit = length - 32;
-                while (offset <= limit)
-                {
-                    v1 = Round(v1, ReadUInt64(bytes, offset));
-                    offset += 8;
-                    v2 = Round(v2, ReadUInt64(bytes, offset));
-                    offset += 8;
-                    v3 = Round(v3, ReadUInt64(bytes, offset));
-                    offset += 8;
-                    v4 = Round(v4, ReadUInt64(bytes, offset));
-                    offset += 8;
-                }
-
-                hash = RotateLeft(v1, 1) + RotateLeft(v2, 7) + RotateLeft(v3, 12) + RotateLeft(v4, 18);
-                hash = MergeRound(hash, v1);
-                hash = MergeRound(hash, v2);
-                hash = MergeRound(hash, v3);
-                hash = MergeRound(hash, v4);
-            }
-            else
-            {
-                hash = Prime5;
-            }
-
-            hash += (ulong)length;
-            while (offset + 8 <= length)
-            {
-                hash ^= Round(0, ReadUInt64(bytes, offset));
-                hash = RotateLeft(hash, 27) * Prime1 + Prime4;
-                offset += 8;
-            }
-
-            if (offset + 4 <= length)
-            {
-                hash ^= ReadUInt32(bytes, offset) * Prime1;
-                hash = RotateLeft(hash, 23) * Prime2 + Prime3;
-                offset += 4;
-            }
-
-            while (offset < length)
-            {
-                hash ^= bytes[offset] * Prime5;
-                hash = RotateLeft(hash, 11) * Prime1;
-                offset++;
-            }
-
-            hash ^= hash >> 33;
-            hash *= Prime2;
-            hash ^= hash >> 29;
-            hash *= Prime3;
-            return hash ^ (hash >> 32);
-        }
-
-        public static RngState Create(ulong preseed)
-        {
-            var seed = preseed;
-            return new RngState(NextState(ref seed), NextState(ref seed), NextState(ref seed), NextState(ref seed));
-        }
-
-        public static void Shuffle<T>(ref RngState state, IList<T> values)
-        {
-            for (var index = values.Count - 1; index > 0; index--)
-            {
-                var other = NextInt(ref state, index + 1);
-                (values[index], values[other]) = (values[other], values[index]);
-            }
-        }
-
-        public static double NextDouble(ref RngState state) =>
-            (Next(ref state) >> 11) * 1.1102230246251565E-16;
-
-        public static int NextInt(ref RngState state, int max)
-        {
-            if (max <= 0)
-            {
-                throw new ArgumentOutOfRangeException(nameof(max));
-            }
-
-            var sample = Next(ref state) >> 11;
-            return (int)((sample * (ulong)max) / 9_007_199_254_740_992UL);
-        }
-
-        private static ulong NextState(ref ulong seed)
-        {
-            seed = unchecked(seed + 11400714819323198485UL);
-            var value = seed;
-            value = unchecked((value ^ (value >> 30)) * 13787848793156543929UL);
-            value = unchecked((value ^ (value >> 27)) * 10723151780598845931UL);
-            return value ^ (value >> 31);
-        }
-
-        private static ulong Round(ulong accumulator, ulong input) =>
-            RotateLeft(accumulator + input * Prime2, 31) * Prime1;
-
-        private static ulong MergeRound(ulong accumulator, ulong value) =>
-            (accumulator ^ Round(0, value)) * Prime1 + Prime4;
-
-        private static ulong ReadUInt64(byte[] bytes, int offset)
-        {
-            ulong value = 0;
-            for (var index = 0; index < 8; index++)
-            {
-                value |= (ulong)bytes[offset + index] << (index * 8);
-            }
-
-            return value;
-        }
-
-        private static uint ReadUInt32(byte[] bytes, int offset) =>
-            (uint)(bytes[offset]
-                | (bytes[offset + 1] << 8)
-                | (bytes[offset + 2] << 16)
-                | (bytes[offset + 3] << 24));
-
-        private static ulong RotateLeft(ulong value, int bits) =>
-            (value << bits) | (value >> (64 - bits));
-
-        private const ulong Prime1 = 11400714785074694791UL;
-        private const ulong Prime2 = 14029467366897019727UL;
-        private const ulong Prime3 = 1609587929392839161UL;
-        private const ulong Prime4 = 9650029242287828579UL;
-        private const ulong Prime5 = 2870177450012600261UL;
-
-        public static ulong Next(ref RngState state)
-        {
-            var product = unchecked(state.S1 * 5UL);
-            var result = unchecked((((product << 7) | (product >> 57)) * 9UL));
-            var temporary = state.S1 << 17;
-            state.S2 ^= state.S0;
-            state.S3 ^= state.S1;
-            state.S1 ^= state.S2;
-            state.S0 ^= state.S3;
-            state.S2 ^= temporary;
-            state.S3 = (state.S3 << 45) | (state.S3 >> 19);
-            return result;
-        }
-
-        public struct RngState
-        {
-            public RngState(ulong s0, ulong s1, ulong s2, ulong s3)
-            {
-                S0 = s0;
-                S1 = s1;
-                S2 = s2;
-                S3 = s3;
-            }
-
-            public ulong S0;
-            public ulong S1;
-            public ulong S2;
-            public ulong S3;
-        }
-    }
 }

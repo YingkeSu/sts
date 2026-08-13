@@ -880,28 +880,52 @@ public partial class SeedSearchOverlay : CanvasLayer
     {
         var row = new HBoxContainer();
         row.AddThemeConstantOverride("separation", 12);
-        AddLegendItem(row, new Color("c0392b"), "M", "Monster");
-        AddLegendItem(row, new Color("8e44ad"), "E", "Elite");
-        AddLegendItem(row, new Color("27ae60"), "R", "Rest site");
-        AddLegendItem(row, new Color("e1b12c"), "$", "Shop");
-        AddLegendItem(row, new Color("e67e22"), "T", "Treasure");
-        AddLegendItem(row, new Color("7f8c8d"), "?", "Unknown");
-        AddLegendItem(row, new Color("7b241c"), "B", "Boss");
-        AddLegendItem(row, new Color("2980b9"), "A", "Ancient");
+        AddLegendItem(row, "monster", new Color("c0392b"), "M", "Monster");
+        AddLegendItem(row, "elite", new Color("8e44ad"), "E", "Elite");
+        AddLegendItem(row, "rest", new Color("27ae60"), "R", "Rest site");
+        AddLegendItem(row, "shop", new Color("e1b12c"), "$", "Shop");
+        AddLegendItem(row, "treasure", new Color("e67e22"), "T", "Treasure");
+        AddLegendItem(row, "unknown", new Color("7f8c8d"), "?", "Unknown");
+        AddLegendItem(row, "boss", new Color("7b241c"), "B", "Boss");
+        AddLegendItem(row, "ancient", new Color("2980b9"), "A", "Ancient");
         return row;
     }
 
-    private static void AddLegendItem(HBoxContainer row, Color color, string glyph, string label)
+    private static void AddLegendItem(
+        HBoxContainer row,
+        string kind,
+        Color color,
+        string glyph,
+        string label)
     {
         var item = new HBoxContainer();
         item.AddThemeConstantOverride("separation", 4);
-        item.AddChild(new ColorRect
+        var icon = GameArtPreview.MapNodeIcon(kind);
+        if (icon != null)
         {
-            Color = color,
-            CustomMinimumSize = new Vector2(12, 12),
-        });
+            item.AddChild(new TextureRect
+            {
+                Texture = icon,
+                CustomMinimumSize = new Vector2(18, 18),
+                ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
+                StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
+            });
+        }
+        else
+        {
+            item.AddChild(new ColorRect
+            {
+                Color = color,
+                CustomMinimumSize = new Vector2(12, 12),
+            });
+        }
+
         var text = MakeLabel(label, 11, MutedText);
-        text.Text = $"{glyph} {text.Text}";
+        if (icon == null)
+        {
+            text.Text = $"{glyph} {text.Text}";
+        }
+
         item.AddChild(text);
         row.AddChild(item);
     }
