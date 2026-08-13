@@ -126,14 +126,14 @@ public sealed class SeedSearchEngine
     {
         3, 4, 5, 6, 7, 8, 9 | CombatScrolls, 10, 11,
     };
-    private static readonly string[] OvergrowthEvents =
+    internal static readonly string[] OvergrowthEvents =
     {
         "aromaofchaos", "byrdonisnest", "densevegetation", "junglemazeadventure", "luminouschoir",
         "morphicgrove", "sapphireseed", "tabletoftruth", "unrestsite", "wellspring", "whisperinghollow",
         "woodcarvings", "sunkenstatue", "brainleech", "roomfullofcheese", "selfhelpbook", "slipperybridge",
         "teamaster", "thefutureofpotions", "thelegendsweretrue", "thisorthat",
     };
-    private static readonly string[] UnderdocksEvents =
+    internal static readonly string[] UnderdocksEvents =
     {
         "abyssalbaths", "doorsoflightanddark", "drowningbeacon", "endlessconveyor", "punchoff",
         "spiralingwhirlpool", "sunkentreasury", "trashheap", "waterloggedscriptorium", "sunkenstatue",

@@ -155,6 +155,11 @@ reference-RNG 引擎移植地图时必须与这些快照逐位对齐。
      11 抽；5 个精英；首领 `Act3Bosses[NextInt(3)]`；Ancient
      `Act3Ancients[NextInt(3 + (darv3 ? 1 : 0))]`；A10 第二首领为
      `NextItem(Act3Bosses 去掉已选首领)`，即对剩余 2 个做 `NextInt(2)`。
+- Act 1 事件池按 v0.110.1 反编译核对：`ModelDb.AllSharedEvents` 共 18 个，
+  但 `EventModel.IsAllowed` 在 act index 0 只放行 8 个共享事件；
+  `OvergrowthEvents/UnderdocksEvents` 只含该幕 `AllEvents` 加这 8 个，其余
+  10 个共享事件被 act 门槛锁定（详见 `docs/sts2-decompile/v0.110.1/README.md`）。
+  事件摘要的抽取顺序跟随 SearchTheSpire board，不参与运行时 parity。
 
 ### 验证方法
 

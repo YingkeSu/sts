@@ -29,12 +29,15 @@
 | `MegaCrit.Sts2.Core.Models.ActModel` | `MegaCrit_Sts2_Core_Models_ActModel.cs` |
 | `MegaCrit.Sts2.Core.Models.Acts.Overgrowth` | `MegaCrit_Sts2_Core_Models_Acts_Overgrowth.cs` |
 | `MegaCrit.Sts2.Core.Models.Acts.Underdocks` | `MegaCrit_Sts2_Core_Models_Acts_Underdocks.cs` |
+| `MegaCrit.Sts2.Core.Models.ModelDb` | `MegaCrit_Sts2_Core_Models_ModelDb.cs` |
+| `MegaCrit.Sts2.Core.Models.EventModel` | `MegaCrit_Sts2_Core_Models_EventModel.cs` |
 | `MegaCrit.Sts2.Core.Models.EncounterModel` | `MegaCrit_Sts2_Core_Models_EncounterModel.cs` |
 | `MegaCrit.Sts2.Core.Models.AncientEventModel` | `MegaCrit_Sts2_Core_Models_AncientEventModel.cs` |
 | `MegaCrit.Sts2.Core.Odds.UnknownMapPointOdds` | `MegaCrit_Sts2_Core_Odds_UnknownMapPointOdds.cs` |
 | `MegaCrit.Sts2.Core.Random.Rng` | `MegaCrit_Sts2_Core_Random_Rng.cs` |
 | `MegaCrit.Sts2.Core.Random.MegaRandom` | `MegaCrit_Sts2_Core_Random_MegaRandom.cs` |
 | `MegaCrit.Sts2.Core.Extensions.ListExtensions` | `MegaCrit_Sts2_Core_Extensions_ListExtensions.cs` |
+| `MegaCrit.Sts2.Core.Rooms.RoomSet` | `MegaCrit_Sts2_Core_Rooms_RoomSet.cs` |
 | `MegaCrit.Sts2.Core.Helpers.StringHelper` | `MegaCrit_Sts2_Core_Helpers_StringHelper.cs` |
 | `MegaCrit.Sts2.Core.Helpers.ImageHelper` | `MegaCrit_Sts2_Core_Helpers_ImageHelper.cs` |
 | `MegaCrit.Sts2.Core.Helpers.AscensionHelper` | `MegaCrit_Sts2_Core_Helpers_AscensionHelper.cs` |
@@ -67,6 +70,14 @@
   `res://images/atlases/ui_atlas.sprites/map/icons/map_monster.tres` 等；
   Boss 用 Boss 节点资源（`EncounterModel.BossNodePath`），Ancient 用
   `AncientEventModel.MapIcon`（`packed/map/ancients/ancient_node_*.png`）。
+- Act 1 事件池是 `AllEvents.Concat(AllSharedEvents)` 洗牌后的队列
+  （`RoomSet.events` + `NextEvent`）。`ModelDb.AllSharedEvents` 共 18 个，
+  但 `EventModel.IsAllowed` 在 `CurrentActIndex == 0` 时只放行 8 个共享事件；
+  其余 10 个被 Act 门槛锁定（PotionCourier/Symbiote 要求 act>0，
+  RelicTrader/RanwidTheElder 要求 act>0，CrystalSphere 要求 act>0 且 100 金，
+  StoneOfAllTime/WelcomeToWongos/DollRoom 只在 act==1，FakeMerchant 要求
+  act>=1，WarHistorianRepy 永不允许），所以 Act 1 事件池只有该幕
+  `AllEvents` + 这 8 个共享事件。
 
 ## 再生命令
 

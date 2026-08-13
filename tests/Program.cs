@@ -843,6 +843,44 @@ if (summaryMismatches.Length > 0)
 
 Console.WriteLine("SearchTheSpire public-beta layout parity checks passed (map generation ported from v0.110.1).");
 
+// [decompile audit] Act 1 event pools must contain exactly the act's AllEvents
+// plus the shared events whose EventModel.IsAllowed returns true at act index 0.
+// ModelDb.AllSharedEvents has 18 entries; the 10 omitted ones are act-locked
+// (PotionCourier/Symbiote need act>0, RelicTrader/RanwidTheElder need act>0,
+// CrystalSphere needs act>0 + 100 gold, StoneOfAllTime/WelcomeToWongos/DollRoom
+// only appear in act 1, FakeMerchant needs act>=1, WarHistorianRepy never).
+var overgrowthEvents = new HashSet<string>(new[]
+{
+    "aromaofchaos", "byrdonisnest", "densevegetation", "junglemazeadventure", "luminouschoir",
+    "morphicgrove", "sapphireseed", "sunkenstatue", "tabletoftruth", "unrestsite", "wellspring",
+    "whisperinghollow", "woodcarvings", "brainleech", "roomfullofcheese", "selfhelpbook",
+    "slipperybridge", "teamaster", "thefutureofpotions", "thelegendsweretrue", "thisorthat",
+});
+var underdocksEvents = new HashSet<string>(new[]
+{
+    "abyssalbaths", "drowningbeacon", "endlessconveyor", "punchoff", "spiralingwhirlpool",
+    "sunkenstatue", "sunkentreasury", "doorsoflightanddark", "trashheap", "waterloggedscriptorium",
+    "brainleech", "roomfullofcheese", "selfhelpbook", "slipperybridge", "teamaster",
+    "thefutureofpotions", "thelegendsweretrue", "thisorthat",
+});
+var actLockedSharedEvents = new[]
+{
+    "crystalsphere", "dollroom", "fakemerchant", "potioncourier", "ranwidtheelder", "relictrader",
+    "stoneofalltime", "symbiote", "warhistorianrepy", "welcometowongos",
+};
+if (SeedSearchEngine.OvergrowthEvents.Length != overgrowthEvents.Count ||
+    SeedSearchEngine.UnderdocksEvents.Length != underdocksEvents.Count ||
+    SeedSearchEngine.OvergrowthEvents.Any(id => !overgrowthEvents.Contains(id)) ||
+    SeedSearchEngine.UnderdocksEvents.Any(id => !underdocksEvents.Contains(id)) ||
+    SeedSearchEngine.OvergrowthEvents.Any(actLockedSharedEvents.Contains) ||
+    SeedSearchEngine.UnderdocksEvents.Any(actLockedSharedEvents.Contains))
+{
+    throw new InvalidOperationException(
+        "Act 1 event pools diverged from the v0.110.1 decompiled AllEvents + IsAllowed sets.");
+}
+
+Console.WriteLine("Act 1 event pools match v0.110.1 decompiled eligibility sets.");
+
 // The real StandardActMap target for A1+ is 8 elite rooms (SwarmingElites),
 // while A0 keeps 5. The old reference engine drew these counts from an
 // unrelated fake map RNG, so A10 searches could surface maps the game would
