@@ -11,8 +11,8 @@
     <RootNamespace>SeedSearchPrototype</RootNamespace>
     <GodotDisabledSourceGenerators>GodotPluginsInitializer</GodotDisabledSourceGenerators>
     <NoWarn>$(NoWarn);MSB3270</NoWarn>
-    <!-- Keep the mod disabled unless installation is explicitly requested. -->
-    <InstallMod Condition="'$(InstallMod)' == ''">false</InstallMod>
+    <!-- Default builds install the mod into the game; pass -p:InstallMod=false to skip. -->
+    <InstallMod Condition="'$(InstallMod)' == ''">true</InstallMod>
   </PropertyGroup>
 
   <ItemGroup Condition="Exists('$(Sts2DataDir)')">
@@ -30,6 +30,7 @@
     <PackageReference Include="Alchyr.Sts2.BaseLib" Version="*" PrivateAssets="All" />
     <Compile Remove="SeedSearchPrototype/**" />
     <Compile Remove="tests/**" />
+    <Compile Remove="tools/**" />
     <None Include="SeedSearchPrototype.json" />
     <None Include="project.godot" />
   </ItemGroup>

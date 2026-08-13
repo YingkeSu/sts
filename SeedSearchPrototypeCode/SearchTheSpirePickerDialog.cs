@@ -9,8 +9,11 @@ namespace SeedSearchPrototype;
 /// </summary>
 public partial class SearchTheSpirePickerDialog : Control
 {
+    private const int ArtGridColumns = 4;
+
     private static readonly Color Backdrop = new("0b0e14cc");
     private static readonly Color Panel = new("1c222c");
+    private static readonly Color Background = new("12151b");
     private static readonly Color Raised = new("252d39");
     private static readonly Color Border = new("3d4858");
     private static readonly Color Text = new("e8edf5");
@@ -25,6 +28,9 @@ public partial class SearchTheSpirePickerDialog : Control
     private VBoxContainer _optionList = null!;
     private PanelContainer _panel = null!;
     private Label _title = null!;
+    private TextureRect _previewImage = null!;
+    private Label _previewTitle = null!;
+    private Label _previewSubtitle = null!;
     private Action<string>? _onPick;
 
     public override void _Ready()
@@ -54,12 +60,13 @@ public partial class SearchTheSpirePickerDialog : Control
         IEnumerable<SearchTheSpireOption> options,
         Action<string> onPick)
     {
-        _title.Text = title;
+        _title.Text = Localization.T(title);
         _options.Clear();
         _options.AddRange(options);
         _onPick = onPick;
         _search.Text = string.Empty;
         _collapsedSections.Clear();
+        ClearPreview();
         Visible = true;
         RefreshOptions();
         _search.GrabFocus();
@@ -68,6 +75,7 @@ public partial class SearchTheSpirePickerDialog : Control
     public void Close()
     {
         Visible = false;
+        ClearPreview();
         _onPick = null;
     }
 
@@ -88,7 +96,7 @@ public partial class SearchTheSpirePickerDialog : Control
 
         _panel = new PanelContainer
         {
-            CustomMinimumSize = new Vector2(680, 560),
+            CustomMinimumSize = new Vector2(1120, 600),
             MouseFilter = MouseFilterEnum.Stop,
         };
         _panel.AddThemeStyleboxOverride("panel", MakeStyle(Panel, Border, 10));
@@ -101,9 +109,16 @@ public partial class SearchTheSpirePickerDialog : Control
         margin.AddThemeConstantOverride("margin_bottom", 16);
         _panel.AddChild(margin);
 
-        var content = new VBoxContainer();
+        var body = new HBoxContainer();
+        body.AddThemeConstantOverride("separation", 14);
+        margin.AddChild(body);
+
+        var content = new VBoxContainer
+        {
+            SizeFlagsHorizontal = SizeFlags.ExpandFill,
+        };
         content.AddThemeConstantOverride("separation", 10);
-        margin.AddChild(content);
+        body.AddChild(content);
 
         var header = new HBoxContainer();
         header.AddThemeConstantOverride("separation", 8);
@@ -117,7 +132,7 @@ public partial class SearchTheSpirePickerDialog : Control
 
         _search = new LineEdit
         {
-            PlaceholderText = "search…",
+            PlaceholderText = Localization.T("search…"),
             CustomMinimumSize = new Vector2(0, 38),
         };
         _search.TextChanged += _ => RefreshOptions();
@@ -126,7 +141,7 @@ public partial class SearchTheSpirePickerDialog : Control
 
         var scroll = new ScrollContainer
         {
-            CustomMinimumSize = new Vector2(0, 420),
+            CustomMinimumSize = new Vector2(0, 440),
             SizeFlagsVertical = SizeFlags.ExpandFill,
             HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled,
         };
@@ -137,6 +152,71 @@ public partial class SearchTheSpirePickerDialog : Control
         };
         _optionList.AddThemeConstantOverride("separation", 6);
         scroll.AddChild(_optionList);
+
+        body.AddChild(BuildPreviewPanel());
+    }
+
+    private Control BuildPreviewPanel()
+    {
+        var panel = new PanelContainer
+        {
+            CustomMinimumSize = new Vector2(340, 0),
+            SizeFlagsVertical = SizeFlags.ExpandFill,
+            MouseFilter = MouseFilterEnum.Ignore,
+        };
+        panel.AddThemeStyleboxOverride("panel", MakeStyle(Backdrop, Border, 8));
+        var margin = new MarginContainer();
+        margin.AddThemeConstantOverride("margin_left", 14);
+        margin.AddThemeConstantOverride("margin_top", 14);
+        margin.AddThemeConstantOverride("margin_right", 14);
+        margin.AddThemeConstantOverride("margin_bottom", 14);
+        panel.AddChild(margin);
+
+        var content = new VBoxContainer();
+        content.AddThemeConstantOverride("separation", 10);
+        margin.AddChild(content);
+
+        var image = new TextureRect
+        {
+            CustomMinimumSize = new Vector2(0, 420),
+            SizeFlagsVertical = SizeFlags.ExpandFill,
+            ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
+            StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
+        };
+        content.AddChild(image);
+
+        _previewTitle = MakeLabel("", 16, Text);
+        _previewTitle.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+        content.AddChild(_previewTitle);
+
+        _previewSubtitle = MakeLabel("", 12, Muted);
+        _previewSubtitle.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+        content.AddChild(_previewSubtitle);
+
+        _previewImage = image;
+        return panel;
+    }
+
+    private void ShowPreview(SearchTheSpireOption option)
+    {
+        _previewTitle.Text = Localization.OptionTitle(option);
+        _previewSubtitle.Text = Localization.OptionSection(option);
+        var texture = GameArtPreview.OptionArt(option);
+        _previewImage.Texture = texture;
+        _previewImage.Visible = texture != null;
+    }
+
+    private void ClearPreview()
+    {
+        if (_previewImage == null)
+        {
+            return;
+        }
+
+        _previewImage.Texture = null;
+        _previewImage.Visible = false;
+        _previewTitle.Text = string.Empty;
+        _previewSubtitle.Text = string.Empty;
     }
 
     private void RefreshOptions()
@@ -159,7 +239,7 @@ public partial class SearchTheSpirePickerDialog : Control
             var sectionName = section.Key;
             var collapsed = _collapsedSections.TryGetValue(sectionName, out var isCollapsed) && isCollapsed;
             var heading = MakeButton(
-                $"{(collapsed ? "▸" : "▾")} {sectionName} · {section.Count()}",
+                $"{(collapsed ? "▸" : "▾")} {Localization.T(sectionName)} · {section.Count()}",
                 "Collapse or expand this option group",
                 0);
             heading.SizeFlagsHorizontal = SizeFlags.ExpandFill;
@@ -176,19 +256,39 @@ public partial class SearchTheSpirePickerDialog : Control
                 continue;
             }
 
+            if (OptionArtRouter.For(section.Key) != OptionArtKind.None)
+            {
+                var grid = new GridContainer { Columns = ArtGridColumns };
+                grid.AddThemeConstantOverride("h_separation", 8);
+                grid.AddThemeConstantOverride("v_separation", 8);
+                grid.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+                foreach (var option in section)
+                {
+                    grid.AddChild(BuildArtOption(option));
+                }
+
+                _optionList.AddChild(grid);
+                continue;
+            }
+
             foreach (var option in section)
             {
-                var button = MakeButton(option.Title, option.Description ?? option.Section, 0);
+                var button = MakeButton(
+                    Localization.OptionTitle(option),
+                    Localization.OptionDescription(option),
+                    0);
                 button.SizeFlagsHorizontal = SizeFlags.ExpandFill;
                 button.Alignment = HorizontalAlignment.Left;
                 button.Disabled = option.Blocked;
                 if (option.Blocked)
                 {
-                    button.TooltipText = option.BlockReason ?? "this option is not available for the current query";
+                    button.TooltipText = Localization.OptionBlockReason(option);
                     button.AddThemeColorOverride("font_color", Muted);
                 }
                 else
                 {
+                    button.MouseEntered += () => ShowPreview(option);
+                    button.FocusEntered += () => ShowPreview(option);
                     button.Pressed += () =>
                     {
                         var onPick = _onPick;
@@ -200,6 +300,72 @@ public partial class SearchTheSpirePickerDialog : Control
                 _optionList.AddChild(button);
             }
         }
+    }
+
+    private Button BuildArtOption(SearchTheSpireOption option)
+    {
+        var button = new Button
+        {
+            CustomMinimumSize = new Vector2(150, 210),
+            FocusMode = FocusModeEnum.All,
+            TooltipText = Localization.OptionDescription(option),
+        };
+        button.AddThemeStyleboxOverride("normal", MakeStyle(Raised, Border, 6));
+        button.AddThemeStyleboxOverride("hover", MakeStyle(AccentDark, Accent, 6));
+        button.AddThemeStyleboxOverride("pressed", MakeStyle(AccentDark, Accent, 6));
+        button.AddThemeColorOverride("font_color", Text);
+
+        var margin = new MarginContainer();
+        margin.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
+        margin.AddThemeConstantOverride("margin_left", 6);
+        margin.AddThemeConstantOverride("margin_top", 6);
+        margin.AddThemeConstantOverride("margin_right", 6);
+        margin.AddThemeConstantOverride("margin_bottom", 6);
+        margin.MouseFilter = MouseFilterEnum.Ignore;
+        button.AddChild(margin);
+
+        var content = new VBoxContainer();
+        content.AddThemeConstantOverride("separation", 4);
+        content.MouseFilter = MouseFilterEnum.Ignore;
+        margin.AddChild(content);
+
+        var image = new TextureRect
+        {
+            Texture = GameArtPreview.OptionArt(option),
+            ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
+            StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
+            CustomMinimumSize = new Vector2(0, 128),
+            SizeFlagsVertical = SizeFlags.ExpandFill,
+            MouseFilter = MouseFilterEnum.Ignore,
+        };
+        content.AddChild(image);
+
+        var title = MakeLabel(Localization.OptionTitle(option), 12, Text);
+        title.HorizontalAlignment = HorizontalAlignment.Center;
+        title.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+        title.CustomMinimumSize = new Vector2(0, 34);
+        title.MouseFilter = MouseFilterEnum.Ignore;
+        content.AddChild(title);
+
+        button.Disabled = option.Blocked;
+        if (option.Blocked)
+        {
+            button.TooltipText = Localization.OptionBlockReason(option);
+            button.Modulate = new Color(0.55f, 0.55f, 0.55f, 0.85f);
+        }
+        else
+        {
+            button.MouseEntered += () => ShowPreview(option);
+            button.FocusEntered += () => ShowPreview(option);
+            button.Pressed += () =>
+            {
+                var onPick = _onPick;
+                Close();
+                onPick?.Invoke(option.Id);
+            };
+        }
+
+        return button;
     }
 
     private void PickFirstVisible()
@@ -229,8 +395,8 @@ public partial class SearchTheSpirePickerDialog : Control
     {
         var button = new Button
         {
-            Text = text,
-            TooltipText = tooltip,
+            Text = Localization.T(text),
+            TooltipText = Localization.T(tooltip),
             CustomMinimumSize = new Vector2(width, 36),
             FocusMode = FocusModeEnum.All,
         };
@@ -243,7 +409,7 @@ public partial class SearchTheSpirePickerDialog : Control
 
     private static Label MakeLabel(string text, int size, Color color)
     {
-        var label = new Label { Text = text };
+        var label = new Label { Text = Localization.T(text) };
         label.AddThemeFontSizeOverride("font_size", size);
         label.AddThemeColorOverride("font_color", color);
         label.AutowrapMode = TextServer.AutowrapMode.WordSmart;

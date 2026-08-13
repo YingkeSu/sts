@@ -44,6 +44,7 @@ public static class GameSeedRuntimeBackend
             run.Act.GenerateRooms(run.Rng.UpFront, unlocks, false);
             var map = StandardActMap.CreateFor(run, false);
             var points = map.GetAllMapPoints().ToArray();
+            var layout = BuildMapLayout(map);
             var counts = points
                 .Select(ReadPointType)
                 .GroupBy(value => value, StringComparer.OrdinalIgnoreCase)
@@ -67,6 +68,7 @@ public static class GameSeedRuntimeBackend
                 EliteCount = eliteCount,
                 ShopCount = shopCount,
                 RestSiteCount = restSiteCount,
+                Map = layout,
             };
             return true;
         }
@@ -97,6 +99,68 @@ public static class GameSeedRuntimeBackend
         var value = ReadMember(point, "PointType") ?? ReadMember(point, "Type");
         return value?.ToString() ?? "Unknown";
     }
+
+    private static MapLayout BuildMapLayout(StandardActMap map)
+    {
+        var nodes = new List<MapNode>();
+        var indices = new Dictionary<MapPoint, int>();
+        var allPoints = new List<MapPoint>();
+
+        void AddPoint(MapPoint point)
+        {
+            if (indices.ContainsKey(point))
+            {
+                return;
+            }
+
+            indices[point] = allPoints.Count;
+            allPoints.Add(point);
+            nodes.Add(new MapNode(point.coord.col, point.coord.row, MapKind(point.PointType)));
+        }
+
+        // StandardActMap keeps Ancient/Boss outside the grid. SearchTheSpire's
+        // preview includes both, so the layout is the grid plus those two.
+        AddPoint(map.StartingMapPoint);
+        foreach (var point in map.GetAllMapPoints())
+        {
+            AddPoint(point);
+        }
+
+        AddPoint(map.BossMapPoint);
+        if (map.SecondBossMapPoint != null)
+        {
+            AddPoint(map.SecondBossMapPoint);
+        }
+
+        var edges = new List<MapEdge>();
+        foreach (var point in allPoints)
+        {
+            foreach (var child in point.Children)
+            {
+                if (indices.TryGetValue(child, out var childIndex))
+                {
+                    edges.Add(new MapEdge(indices[point], childIndex));
+                }
+            }
+        }
+
+        edges.Sort((first, second) => first.From != second.From
+            ? first.From.CompareTo(second.From)
+            : first.To.CompareTo(second.To));
+        return new MapLayout(nodes, edges);
+    }
+
+    private static string MapKind(MapPointType type) => type switch
+    {
+        MapPointType.Monster => "monster",
+        MapPointType.Elite => "elite",
+        MapPointType.RestSite => "rest",
+        MapPointType.Shop => "shop",
+        MapPointType.Treasure => "treasure",
+        MapPointType.Boss => "boss",
+        MapPointType.Ancient => "ancient",
+        _ => "unknown",
+    };
 
     private static string ReadMapId(object act)
     {

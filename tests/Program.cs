@@ -1,4 +1,6 @@
 using SeedSearchPrototype;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 
 var engine = new SeedSearchEngine();
 if (SeedSearchEngine.HashCode("000000000000") != -626668290 ||
@@ -30,6 +32,35 @@ if (SeedSearchEngine.CreateSeed(SeedBranch.PublicBeta, 42).Length != 12)
 {
     throw new InvalidOperationException("Beta seed codec did not produce a 12-character seed.");
 }
+
+if (SeedSearchEngine.CreateSeed(SeedBranch.PublicBeta, 1) != "100000000000" ||
+    SeedSearchEngine.CreateSeed(SeedBranch.PublicBeta, 941) != "PT0000000000")
+{
+    throw new InvalidOperationException("Beta seed codec does not match SearchTheSpire display_for_index.");
+}
+
+var ascensionValues = SearchTheSpireCatalog.AscensionValues;
+if (!ascensionValues.SequenceEqual(new[] { 0, 5, 10, 15, 20 }) ||
+    SearchTheSpireBoardState.Empty.WithAscension(15).Ascension != 15 ||
+    SearchTheSpireBoardState.Empty.WithAscension(20).Ascension != 20 ||
+    SearchTheSpireBoardState.Empty.WithAscension(25).Ascension != 20)
+{
+    throw new InvalidOperationException("Ascension options regressed below A15/A20 or no longer clamp at A20.");
+}
+
+if (OptionArtRouter.For(new SearchTheSpireOption("bash", "Bash", "Ironclad cards · rare")) != OptionArtKind.Card ||
+    OptionArtRouter.For(new SearchTheSpireOption("anchor", "Anchor", "relic rewards")) != OptionArtKind.Relic ||
+    OptionArtRouter.For(new SearchTheSpireOption("anchor", "Anchor", "any character")) != OptionArtKind.Relic ||
+    OptionArtRouter.For(new SearchTheSpireOption("anchor", "Anchor", "Ironclad — picks the character")) != OptionArtKind.Relic ||
+    OptionArtRouter.For(new SearchTheSpireOption("vantom", "Vantom", "Overgrowth bosses")) != OptionArtKind.Boss ||
+    OptionArtRouter.For(new SearchTheSpireOption("selfhelpbook", "Self Help Book", "act 1 event")) != OptionArtKind.None ||
+    OptionArtRouter.For(new SearchTheSpireOption("neowsbones", "Neow's Bones", "cursed offer")) != OptionArtKind.Relic ||
+    OptionArtRouter.For(new SearchTheSpireOption("neowstorment", "Neow's Torment", "bonus offer")) != OptionArtKind.Relic)
+{
+    throw new InvalidOperationException("Picker art routing does not distinguish cards, relics and bosses.");
+}
+
+Console.WriteLine("Ascension A0-A20 and picker art routing checks passed.");
 
 var query = new SeedQuery(
     SeedBranch.PublicBeta,
@@ -431,6 +462,88 @@ if (bonesCapsuleDetails.OptionsFor("bonesCapsuleSet2").Any(option => option.Id =
 
 Console.WriteLine("SearchTheSpire grouped-detail checks passed.");
 
+var silentKaleidoBoard = SearchTheSpireBoardState.Empty
+    .WithCharacter(RunCharacter.Silent)
+    .Select("neowOffer", "kaleidoscope")
+    .Select("kaleidoCard1", "rage")
+    .Select("kaleidoCard2", "ironwave");
+var silentKaleidoOptions = silentKaleidoBoard.OptionsFor("kaleidoCard1");
+if (!silentKaleidoOptions.Any(option => option.Id == "rage" && option.OwnerCharacter == "other character") ||
+    silentKaleidoBoard.OptionsFor("kaleidoCard2").Any(option => option.Id == "ironwave" && option.Blocked))
+{
+    throw new InvalidOperationException("Kaleidoscope pickers did not expose the other-character card pools.");
+}
+
+var silentKaleidoSpec = silentKaleidoBoard.ToSpec();
+if (!silentKaleidoSpec.Contains("bonus=kaleidoscope", StringComparison.Ordinal) ||
+    !silentKaleidoSpec.Contains("kaleido_distinct=rage+ironwave", StringComparison.Ordinal))
+{
+    throw new InvalidOperationException("Silent Kaleidoscope cards did not compile to the SearchTheSpire spec.");
+}
+
+var kaleidoFixture = engine.Inspect("PT0000000000", SeedBranch.PublicBeta, "0.110.1|Silent|A10|Plain|");
+var kaleidoDetail = kaleidoFixture.DetailSpec
+    .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+    .FirstOrDefault(fragment => fragment.StartsWith("kaleido_distinct=", StringComparison.Ordinal))?
+    .Split('=', 2)[1];
+if (kaleidoDetail == null ||
+    !kaleidoDetail.Split('+', StringSplitOptions.RemoveEmptyEntries).Contains("rage") ||
+    !kaleidoDetail.Split('+', StringSplitOptions.RemoveEmptyEntries).Contains("ironwave"))
+{
+    throw new InvalidOperationException($"SearchTheSpire kaleidoscope detail diverged: {kaleidoFixture.DetailSpec}");
+}
+
+var kaleidoQuery = new SeedQuery(
+    SeedBranch.PublicBeta,
+    GameApiVersion: "0.110.1",
+    Character: RunCharacter.Silent,
+    Ascension: 10,
+    RunMode: RunMode.Plain,
+    StopAfter: 1,
+    StartOffset: 941L,
+    MaxCandidates: 1,
+    MinimumElites: 0,
+    MinimumShops: 0,
+    MinimumRestSites: 0,
+    NeowFilter: NeowFilter.Any,
+    AncientFilter: "Any",
+    BossFilter: "Any",
+    HiddenSpec: silentKaleidoSpec);
+var kaleidoMatches = engine.Search(kaleidoQuery, CancellationToken.None);
+if (kaleidoMatches.Count != 1 || kaleidoMatches[0].Seed != "PT0000000000")
+{
+    throw new InvalidOperationException("SearchTheSpire kaleidoscope query did not resolve the parity fixture.");
+}
+
+var kaleidoZeroMatches = engine.Search(kaleidoQuery with
+{
+    StartOffset = 0,
+    MaxCandidates = 50_000,
+}, CancellationToken.None);
+var kaleidoZeroDetail = (kaleidoZeroMatches.FirstOrDefault()?.Snapshot.DetailSpec ?? string.Empty)
+    .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+    .FirstOrDefault(fragment => fragment.StartsWith("kaleido_distinct=", StringComparison.Ordinal))?
+    .Split('=', 2)[1];
+var kaleidoZeroCards = kaleidoZeroDetail?
+    .Split('+', StringSplitOptions.RemoveEmptyEntries)
+    .ToHashSet(StringComparer.OrdinalIgnoreCase) ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+if (kaleidoZeroMatches.Count == 0 ||
+    !kaleidoZeroCards.Contains("rage") ||
+    !kaleidoZeroCards.Contains("ironwave"))
+{
+    throw new InvalidOperationException("A zero-offset Silent Kaleidoscope search returned no valid match.");
+}
+
+var kaleidoExact = engine.Inspect("00000001L0WX", SeedBranch.PublicBeta, "0.110.1|Silent|A10|Plain|");
+if (!kaleidoExact.DetailSpec.Contains(
+        "kaleido_distinct=glacier+countdown+bludgeon+orbit+gofortheeyes+dansemacabre",
+        StringComparison.Ordinal))
+{
+    throw new InvalidOperationException($"Kaleidoscope six-offer parity diverged: {kaleidoExact.DetailSpec}");
+}
+
+Console.WriteLine("SearchTheSpire kaleidoscope parity checks passed.");
+
 var freshReward = SearchTheSpireBoardState.Empty
     .WithCharacter(RunCharacter.Ironclad)
     .Select("neowOffer", "kaleidoscope")
@@ -509,3 +622,101 @@ if (restoredQueryState.Selected("neowOffer") != "largecapsule" ||
 }
 
 Console.WriteLine("SearchTheSpire saved-query restore checks passed.");
+
+var layout = new MapLayout(
+    new List<MapNode>
+    {
+        new(3, 0, "ancient"),
+        new(2, 1, "monster"),
+        new(3, 15, "boss"),
+    },
+    new List<MapEdge> { new(0, 1), new(1, 2) });
+var layoutJson = JsonSerializer.Serialize(layout);
+var layoutBack = JsonSerializer.Deserialize<MapLayout>(layoutJson);
+if (layoutBack == null ||
+    !layoutBack.Nodes.SequenceEqual(layout.Nodes) ||
+    !layoutBack.Edges.SequenceEqual(layout.Edges))
+{
+    throw new InvalidOperationException("Map layout JSON round-trip regressed.");
+}
+
+Console.WriteLine("Map layout JSON round-trip checks passed.");
+
+var parityRows = JsonSerializer.Deserialize<List<LayoutParityRow>>(
+    File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "SeedLayoutParity.json")))!;
+var parityMismatches = new List<string>();
+foreach (var row in parityRows)
+{
+    var snap = engine.Inspect(row.Seed, SeedBranch.PublicBeta);
+    var fields = new (string Name, string Actual, string Expected)[]
+    {
+        ("act1_map", snap.Act1MapId, row.Act1Map.ToString()),
+        ("boss1", snap.Boss1Id, row.Boss1),
+        ("boss2", snap.Boss2Id, row.Boss2),
+        ("boss3", snap.Boss3Id, row.Boss3),
+        ("boss3b", snap.Boss3BId, row.Boss3B),
+        ("ancient2", snap.Ancient2Id, row.Ancient2),
+        ("ancient3", snap.Ancient3Id, row.Ancient3),
+    };
+    // Elite/shop/rest node counts are still an approximation: the reference
+    // engine does not yet port StandardActMap generation, so they are not
+    // part of this parity assertion.
+    var bad = fields
+        .Where(pair => Norm(pair.Actual) != Norm(pair.Expected))
+        .Select(pair => $"{pair.Name}:{Norm(pair.Actual)}!={Norm(pair.Expected)}")
+        .ToArray();
+    if (bad.Length > 0)
+    {
+        parityMismatches.Add($"{row.Seed}: {string.Join(", ", bad)}");
+    }
+}
+
+if (parityMismatches.Count > 0)
+{
+    throw new InvalidOperationException(
+        $"SearchTheSpire v0.110.1 layout parity failed for {parityMismatches.Count}/{parityRows.Count} seeds:\n" +
+        string.Join("\n", parityMismatches.Take(8)));
+}
+
+Console.WriteLine("SearchTheSpire public-beta layout parity checks passed.");
+
+var benchBase = new SeedQuery(
+    SeedBranch.PublicBeta,
+    GameApiVersion: "0.110.1",
+    Character: RunCharacter.Any,
+    Ascension: 0,
+    RunMode: RunMode.Plain,
+    StopAfter: 1000,
+    StartOffset: 0,
+    MaxCandidates: 1,
+    MinimumElites: 0,
+    MinimumShops: 0,
+    MinimumRestSites: 0,
+    NeowFilter: NeowFilter.Any,
+    AncientFilter: "Any",
+    BossFilter: "Any",
+    HiddenSpec: "boss1=__never__");
+foreach (var budget in new long[] { 100_000L, 1_000_000L })
+{
+    var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+    var benchMatches = engine.Search(benchBase with { MaxCandidates = budget }, CancellationToken.None);
+    stopwatch.Stop();
+    Console.WriteLine($"BENCH {budget}: {stopwatch.Elapsed.TotalSeconds:F3}s {stopwatch.Elapsed.TotalMilliseconds / budget * 1000.0:F2}us/seed");
+}
+
+static string Norm(string value) =>
+    new(value.Where(char.IsLetterOrDigit).Select(char.ToLowerInvariant).ToArray());
+
+internal sealed record LayoutParityRow(
+    [property: JsonPropertyName("seed")] string Seed,
+    [property: JsonPropertyName("act1_map")] int Act1Map,
+    [property: JsonPropertyName("boss1")] string Boss1,
+    [property: JsonPropertyName("boss2")] string Boss2,
+    [property: JsonPropertyName("boss3")] string Boss3,
+    [property: JsonPropertyName("boss3b")] string Boss3B,
+    [property: JsonPropertyName("ancient2")] string Ancient2,
+    [property: JsonPropertyName("ancient3")] string Ancient3,
+    [property: JsonPropertyName("elite")] int Elite,
+    [property: JsonPropertyName("shop")] int Shop,
+    [property: JsonPropertyName("rest")] int Rest,
+    [property: JsonPropertyName("nodes")] int Nodes);

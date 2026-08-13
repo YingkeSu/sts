@@ -1,0 +1,17 @@
+[
+  {"seed":"000000000000","act1_map":1,"boss1":"Waterfall Giant","boss2":"Kaiser Crab","boss3":"Queen","boss3b":"Test Subject","ancient2":"pael","ancient3":"vakuu","elite":5,"shop":3,"rest":9,"nodes":64},
+  {"seed":"00000000000E","act1_map":0,"boss1":"Vantom","boss2":"Knowledge Demon","boss3":"Test Subject","boss3b":"Queen","ancient2":"orobas","ancient3":"nonupeipe","elite":5,"shop":3,"rest":9,"nodes":64},
+  {"seed":"000000000003","act1_map":1,"boss1":"Lagavulin Matriarch","boss2":"The Insatiable","boss3":"Aeonglass","boss3b":"Test Subject","ancient2":"orobas","ancient3":"nonupeipe","elite":5,"shop":3,"rest":9,"nodes":57},
+  {"seed":"000000000020","act1_map":1,"boss1":"Soul Fysh","boss2":"The Insatiable","boss3":"Test Subject","boss3b":"Queen","ancient2":"orobas","ancient3":"vakuu","elite":5,"shop":3,"rest":10,"nodes":60},
+  {"seed":"000000000027","act1_map":1,"boss1":"Lagavulin Matriarch","boss2":"The Insatiable","boss3":"Aeonglass","boss3b":"Queen","ancient2":"tezcatara","ancient3":"vakuu","elite":5,"shop":3,"rest":10,"nodes":66},
+  {"seed":"56Q9KKW2JMWB","act1_map":1,"boss1":"Lagavulin Matriarch","boss2":"The Insatiable","boss3":"Aeonglass","boss3b":"Test Subject","ancient2":"orobas","ancient3":"darv","elite":5,"shop":3,"rest":9,"nodes":62},
+  {"seed":"G55YBCVH3LW3","act1_map":1,"boss1":"Waterfall Giant","boss2":"The Insatiable","boss3":"Test Subject","boss3b":"Aeonglass","ancient2":"orobas","ancient3":"tanx","elite":5,"shop":3,"rest":10,"nodes":66},
+  {"seed":"6WQTKZ0PW29Y","act1_map":1,"boss1":"Waterfall Giant","boss2":"Knowledge Demon","boss3":"Aeonglass","boss3b":"Test Subject","ancient2":"pael","ancient3":"nonupeipe","elite":5,"shop":3,"rest":10,"nodes":61},
+  {"seed":"GM101RN8MTHM","act1_map":0,"boss1":"Ceremonial Beast","boss2":"Kaiser Crab","boss3":"Aeonglass","boss3b":"Test Subject","ancient2":"pael","ancient3":"vakuu","elite":5,"shop":3,"rest":11,"nodes":62},
+  {"seed":"K8V1RY6K345H","act1_map":0,"boss1":"Ceremonial Beast","boss2":"Knowledge Demon","boss3":"Aeonglass","boss3b":"Test Subject","ancient2":"orobas","ancient3":"nonupeipe","elite":5,"shop":3,"rest":10,"nodes":66},
+  {"seed":"XBWRK8EQ5W5T","act1_map":0,"boss1":"Vantom","boss2":"Knowledge Demon","boss3":"Test Subject","boss3b":"Queen","ancient2":"orobas","ancient3":"nonupeipe","elite":5,"shop":3,"rest":9,"nodes":60},
+  {"seed":"FZJ5DH5D2GWB","act1_map":0,"boss1":"The Kin","boss2":"Knowledge Demon","boss3":"Test Subject","boss3b":"Aeonglass","ancient2":"tezcatara","ancient3":"vakuu","elite":5,"shop":3,"rest":12,"nodes":63},
+  {"seed":"M944J8Z11Y2Y","act1_map":0,"boss1":"Ceremonial Beast","boss2":"The Insatiable","boss3":"Aeonglass","boss3b":"Test Subject","ancient2":"darv","ancient3":"vakuu","elite":5,"shop":3,"rest":10,"nodes":61},
+  {"seed":"ZVGZB8HA2GYE","act1_map":0,"boss1":"Vantom","boss2":"Knowledge Demon","boss3":"Test Subject","boss3b":"Aeonglass","ancient2":"darv","ancient3":"nonupeipe","elite":5,"shop":3,"rest":8,"nodes":61},
+  {"seed":"BJNCC3PHDP8T","act1_map":1,"boss1":"Lagavulin Matriarch","boss2":"Kaiser Crab","boss3":"Test Subject","boss3b":"Aeonglass","ancient2":"pael","ancient3":"vakuu","elite":5,"shop":3,"rest":9,"nodes":66}
+]

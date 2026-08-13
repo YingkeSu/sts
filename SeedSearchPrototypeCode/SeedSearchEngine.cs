@@ -65,6 +65,69 @@ public sealed class SeedSearchEngine
         "punchoff", "spiralingwhirlpool", "sunkentreasury", "trashheap", "waterloggedscriptorium",
         "sunkenstatue", "brainleech", "roomfullofcheese", "selfhelpbook", "slipperybridge", "teamaster",
         "thefutureofpotions", "thelegendsweretrue", "thisorthat",     };
+
+    // Encounter tag flags from the community v0.107.1 decompile. The run's
+    // UpFront stream consumes the weak/regular encounter deques before the
+    // boss/ancient rolls; rejection depends on these shared tags, so the
+    // values must stay exactly in decompile order.
+    private const int CombatBurrower = 0x100;
+    private const int CombatChomper = 0x200;
+    private const int CombatNibbit = 0x400;
+    private const int CombatShrinker = 0x800;
+    private const int CombatSlimes = 0x1000;
+    private const int CombatThieves = 0x2000;
+    private const int CombatWorkers = 0x4000;
+    private const int CombatCrawler = 0x8000;
+    private const int CombatMushroom = 0x10000;
+    private const int CombatKnights = 0x20000;
+    private const int CombatScrolls = 0x40000;
+    private const int CombatSeapunk = 0x80000;
+    private const int CombatSlugs = 0x100000;
+    private const int CombatExoskeletons = 0x200000;
+    private const int CombatJaxfruit = 0x400000;
+
+    private static readonly int[] OvergrowthEasyCombats =
+    {
+        CombatCrawler, 1 | CombatNibbit, 2 | CombatShrinker, 3 | CombatSlimes,
+    };
+
+    private static readonly int[] OvergrowthHardCombats =
+    {
+        4, 5 | CombatMushroom | CombatSlimes, 6, 7, 8, 9,
+        10 | CombatShrinker | CombatCrawler, 11, 12 | CombatSlimes,
+        13 | CombatSlimes | CombatJaxfruit, 14 | CombatMushroom | CombatJaxfruit, 15,
+    };
+
+    private static readonly int[] UnderdocksEasyCombats =
+    {
+        CombatSlugs, 1 | CombatSeapunk, 2, 3,
+    };
+
+    private static readonly int[] UnderdocksHardCombats =
+    {
+        4 | CombatSlugs, 5, 6, 7, 8, 9, 10, 11 | CombatSeapunk, 12, 13,
+    };
+
+    private static readonly int[] HiveEasyCombats =
+    {
+        CombatWorkers, 1 | CombatExoskeletons, 2 | CombatThieves, 3 | CombatBurrower,
+    };
+
+    private static readonly int[] HiveHardCombats =
+    {
+        4 | CombatWorkers, 5 | CombatChomper, 6 | CombatExoskeletons, 7, 8, 9, 10,
+        11 | CombatWorkers, 12, 13,
+    };
+
+    private static readonly int[] GloryEasyCombats =
+    {
+        0, 1 | CombatScrolls, 2,
+    };
+
+    private static readonly int[] GloryHardCombats =
+    {
+        3, 4, 5, 6, 7, 8, 9 | CombatScrolls, 10, 11,
+    };
     private static readonly string[] OvergrowthEvents =
     {
         "aromaofchaos", "byrdonisnest", "densevegetation", "junglemazeadventure", "luminouschoir",
@@ -123,7 +186,7 @@ public sealed class SeedSearchEngine
     {
         var matches = new List<SeedMatch>();
         var stopAfter = Math.Clamp(query.StopAfter, 1, 1000);
-        var budget = Math.Clamp(query.MaxCandidates, 1, 10_000_000);
+        var budget = Math.Max(1, query.MaxCandidates);
         var start = Math.Max(0, query.StartOffset);
 
         long checkedCount = 0;
@@ -159,8 +222,10 @@ public sealed class SeedSearchEngine
         var baseSeed = branch == SeedBranch.PublicBeta
             ? Sts2ReferenceRng.HashCode64(seed)
             : unchecked((ulong)(uint)Sts2ReferenceRng.HashCode(seed));
+        // Keep the old map summary draws exactly as before; only the
+        // authoritative map choice comes from the act_selection stream.
         var mapRng = Sts2ReferenceRng.Create(baseSeed);
-        var act1MapId = Sts2ReferenceRng.NextInt(ref mapRng, 2).ToString();
+        Sts2ReferenceRng.NextInt(ref mapRng, 2);
         var eliteCount = 1 + Sts2ReferenceRng.NextInt(ref mapRng, 3);
         var shopCount = Sts2ReferenceRng.NextInt(ref mapRng, 3);
         var restSiteCount = 1 + Sts2ReferenceRng.NextInt(ref mapRng, 3);
@@ -190,25 +255,75 @@ public sealed class SeedSearchEngine
             map.Append(display);
         }
 
-        var bossRng = Sts2ReferenceRng.Create(baseSeed + StreamHash(branch, "up_front"));
-        var bossPool = act1MapId == "0" ? OvergrowthBosses : UnderdocksBosses;
-        var boss1Id = bossPool[Sts2ReferenceRng.NextInt(ref bossRng, bossPool.Length)];
-        var boss2Id = Act2Bosses[Sts2ReferenceRng.NextInt(ref bossRng, Act2Bosses.Length)];
-        var boss3Id = Act3Bosses[Sts2ReferenceRng.NextInt(ref bossRng, Act3Bosses.Length)];
-        var boss3BId = Act3Bosses[Sts2ReferenceRng.NextInt(ref bossRng, Act3Bosses.Length)];
-        if (boss3BId == boss3Id)
-        {
-            boss3BId = Act3Bosses[(Array.IndexOf(Act3Bosses, boss3BId) + 1) % Act3Bosses.Length];
-        }
+        var actSelectionRng = Sts2ReferenceRng.Create(baseSeed + StreamHash(branch, "act_selection"));
+        var act1MapId = Sts2ReferenceRng.NextInt(ref actSelectionRng, 2).ToString();
 
-        var ancient2Id = Act2Ancients[Sts2ReferenceRng.NextInt(ref bossRng, Act2Ancients.Length)];
-        var ancient3Id = Act3Ancients[Sts2ReferenceRng.NextInt(ref bossRng, Act3Ancients.Length)];
+        // Bosses, ancients and the A10 second boss are rolled from the
+        // UpFront stream only after the shared/player relic shuffles, the
+        // shared-ancient assignment, and each act's event/combat/elite deque
+        // consumption. Order and counts mirror RunManager.GenerateRooms and
+        // ActModel.GenerateRooms (v0.110.1 decompile).
+        var layoutRng = Sts2ReferenceRng.Create(baseSeed + StreamHash(branch, "up_front"));
+        Advance(ref layoutRng, 29 + 24 + 34 + 24 + 1);
+        Advance(ref layoutRng, 31 + 25 + 37 + 25);
+        var darv2 = Sts2ReferenceRng.NextInt(ref layoutRng, 2);
+        var darv3 = Sts2ReferenceRng.NextInt(ref layoutRng, 2) != 0 && darv2 == 0;
+
+        // Act 1.
+        Advance(ref layoutRng, (act1MapId == "1" ? 10 : 13) + 18 - 1);
+        var act1Easy1 = Sts2ReferenceRng.NextInt(ref layoutRng, 4);
+        var act1Easy2 = Sts2ReferenceRng.NextInt(ref layoutRng, 3);
+        var act1Easy3 = Sts2ReferenceRng.NextInt(ref layoutRng, 2);
+        AdjustDistinctAct1Easy(ref act1Easy1, ref act1Easy2, ref act1Easy3);
+        var previousCombat = (act1MapId == "1" ? UnderdocksEasyCombats : OvergrowthEasyCombats)[act1Easy3];
+        ConsumeHardPool(
+            ref layoutRng,
+            act1MapId == "1" ? UnderdocksHardCombats : OvergrowthHardCombats,
+            12,
+            ref previousCombat);
+        AdvanceElites(ref layoutRng);
+        var boss1Id = (act1MapId == "1" ? UnderdocksBosses : OvergrowthBosses)
+            [Sts2ReferenceRng.NextInt(ref layoutRng, 3)];
+        Advance(ref layoutRng, 1); // Act 1's ancient is always Neow.
+
+        // Act 2.
+        Advance(ref layoutRng, 10 + 18 - 1);
+        var act2Easy1 = Sts2ReferenceRng.NextInt(ref layoutRng, 4);
+        var act2Easy2 = Sts2ReferenceRng.NextInt(ref layoutRng, 3);
+        if (act2Easy2 >= act2Easy1)
+        {
+            act2Easy2 += 1;
+        }
+        previousCombat = HiveEasyCombats[act2Easy2];
+        ConsumeHardPool(ref layoutRng, HiveHardCombats, 12, ref previousCombat);
+        AdvanceElites(ref layoutRng);
+        var boss2Id = Act2Bosses[Sts2ReferenceRng.NextInt(ref layoutRng, Act2Bosses.Length)];
+        var ancient2Id = Act2Ancients[Sts2ReferenceRng.NextInt(ref layoutRng, 3 + (darv2 != 0 ? 1 : 0))];
+
+        // Act 3.
+        Advance(ref layoutRng, 7 + 18 - 1);
+        var act3Easy1 = Sts2ReferenceRng.NextInt(ref layoutRng, 3);
+        var act3Easy2 = Sts2ReferenceRng.NextInt(ref layoutRng, 2);
+        if (act3Easy2 >= act3Easy1)
+        {
+            act3Easy2 += 1;
+        }
+        previousCombat = GloryEasyCombats[act3Easy2];
+        ConsumeHardPool(ref layoutRng, GloryHardCombats, 11, ref previousCombat);
+        AdvanceElites(ref layoutRng);
+        var boss3Id = Act3Bosses[Sts2ReferenceRng.NextInt(ref layoutRng, Act3Bosses.Length)];
+        var ancient3Id = Act3Ancients[Sts2ReferenceRng.NextInt(ref layoutRng, 3 + (darv3 ? 1 : 0))];
+        var secondBossPool = Act3Bosses
+            .Where(id => !id.Equals(boss3Id, StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+        var boss3BId = secondBossPool[Sts2ReferenceRng.NextInt(ref layoutRng, secondBossPool.Length)];
+
         var ancient2Offers = SearchTheSpireCatalog.AncientOfferIdsFor(ancient2Id, 2);
         var ancient3Offers = SearchTheSpireCatalog.AncientOfferIdsFor(ancient3Id, 3);
         var ancient2OfferPool = ancient2Offers.Count == 0 ? AncientOfferIds : ancient2Offers;
         var ancient3OfferPool = ancient3Offers.Count == 0 ? AncientOfferIds : ancient3Offers;
-        var ancient2OfferId = ancient2OfferPool[Sts2ReferenceRng.NextInt(ref bossRng, ancient2OfferPool.Count)];
-        var ancient3OfferId = ancient3OfferPool[Sts2ReferenceRng.NextInt(ref bossRng, ancient3OfferPool.Count)];
+        var ancient2OfferId = ancient2OfferPool[Sts2ReferenceRng.NextInt(ref layoutRng, ancient2OfferPool.Count)];
+        var ancient3OfferId = ancient3OfferPool[Sts2ReferenceRng.NextInt(ref layoutRng, ancient3OfferPool.Count)];
 
         var neowRng = Sts2ReferenceRng.Create(baseSeed + StreamHash(branch, "NEOW"));
         var cursedOffer = CursedOffers[Sts2ReferenceRng.NextInt(ref neowRng, CursedOffers.Length)];
@@ -236,23 +351,36 @@ public sealed class SeedSearchEngine
         var shopRelicPool = ShopRelicPool(character);
         var capsuleRelicPool = CapsuleRelicPool(character);
         var rewardCardValues = Enumerable.Range(0, 3)
-            .Select(_ => cardPool[Sts2ReferenceRng.NextInt(ref bossRng, cardPool.Count)])
+            .Select(_ => cardPool[Sts2ReferenceRng.NextInt(ref layoutRng, cardPool.Count)])
             .ToArray();
         var shopRelicValues = Enumerable.Range(0, 2)
-            .Select(_ => shopRelicPool[Sts2ReferenceRng.NextInt(ref bossRng, shopRelicPool.Count)])
+            .Select(_ => shopRelicPool[Sts2ReferenceRng.NextInt(ref layoutRng, shopRelicPool.Count)])
             .ToArray();
         var bagRelicValues = Enumerable.Range(0, 2)
-            .Select(_ => capsuleRelicPool[Sts2ReferenceRng.NextInt(ref bossRng, capsuleRelicPool.Count)])
+            .Select(_ => capsuleRelicPool[Sts2ReferenceRng.NextInt(ref layoutRng, capsuleRelicPool.Count)])
             .ToArray();
         var eventPool = act1MapId == "0" ? OvergrowthEvents : UnderdocksEvents;
         var eventValues = Enumerable.Range(0, 5)
-            .Select(_ => eventPool[Sts2ReferenceRng.NextInt(ref bossRng, eventPool.Length)])
+            .Select(_ => eventPool[Sts2ReferenceRng.NextInt(ref layoutRng, eventPool.Length)])
             .ToArray();
         var rewardCards = string.Join('+', rewardCardValues);
         var shopRelics = string.Join('+', shopRelicValues);
         var bagRelics = string.Join('+', bagRelicValues);
         var eventIds = string.Join('+', eventValues);
-        var detailSpec = BuildDetailSpec(offer, grantA, grantB, rewardCardValues, cardPool, potionPool, capsuleRelicPool, ref neowRng);
+        var ascension = ParseAscension(context);
+        var kaleidoDistinct = bonusA == "kaleidoscope" || bonusB == "kaleidoscope"
+            ? SimulateKaleidoCards(baseSeed, branch, character, ascension)
+            : null;
+        var detailSpec = BuildDetailSpec(
+            offer,
+            grantA,
+            grantB,
+            rewardCardValues,
+            cardPool,
+            potionPool,
+            capsuleRelicPool,
+            ref neowRng,
+            kaleidoDistinct);
 
         return new SeedSnapshot(
             seed,
@@ -284,11 +412,104 @@ public sealed class SeedSearchEngine
             eventIds,
             character,
             detailSpec,
-            ParseAscension(context));
+            ascension);
     }
 
     private static string BuildContext(SeedQuery query) =>
         $"{query.GameApiVersion}|{query.Character}|A{query.Ascension}|{query.RunMode}|{query.HiddenSpec}";
+
+    private static void Advance(ref Sts2ReferenceRng.RngState rng, int count)
+    {
+        for (var i = 0; i < count; i++)
+        {
+            Sts2ReferenceRng.Next(ref rng);
+        }
+    }
+
+    private static void AdjustDistinctAct1Easy(ref int e11, ref int e12, ref int e13)
+    {
+        if (e12 >= e11)
+        {
+            e12 += 1;
+            if (e13 >= e11)
+            {
+                e13 += 1;
+            }
+
+            if (e13 >= e12)
+            {
+                e13 += 1;
+            }
+        }
+        else
+        {
+            if (e13 >= e12)
+            {
+                e13 += 1;
+            }
+
+            if (e13 >= e11)
+            {
+                e13 += 1;
+            }
+        }
+    }
+
+    private static bool SharesCombatTags(int value, int previous) =>
+        previous >= 0 && ((value & previous & ~0xff) != 0 || value == previous);
+
+    private static void ConsumeHardPool(
+        ref Sts2ReferenceRng.RngState rng,
+        int[] fullPool,
+        int count,
+        ref int previous)
+    {
+        var pool = fullPool.ToList();
+        for (var i = 0; i < count; i++)
+        {
+            if (pool.Count == 0)
+            {
+                pool = fullPool.ToList();
+            }
+
+            var doCheck = false;
+            foreach (var poolValue in pool)
+            {
+                if (!SharesCombatTags(poolValue, previous))
+                {
+                    doCheck = true;
+                    break;
+                }
+            }
+            int candidate;
+            int value;
+            do
+            {
+                candidate = Sts2ReferenceRng.NextInt(ref rng, pool.Count);
+                value = pool[candidate];
+            } while (doCheck && SharesCombatTags(value, previous));
+
+            previous = value;
+            pool.RemoveAt(candidate);
+        }
+    }
+
+    private static void AdvanceElites(ref Sts2ReferenceRng.RngState rng)
+    {
+        var previous = -1;
+        for (var i = 0; i < 5; i++)
+        {
+            int e1;
+            do
+            {
+                e1 = Sts2ReferenceRng.NextInt(ref rng, 3);
+            } while (e1 == previous);
+
+            var e2 = Sts2ReferenceRng.NextInt(ref rng, 2);
+            previous = 2 - (e1 + e2 * 3) / 2;
+            Sts2ReferenceRng.Next(ref rng);
+        }
+    }
 
     private static ulong StreamHash(SeedBranch branch, string name) =>
         branch == SeedBranch.PublicBeta
@@ -342,6 +563,40 @@ public sealed class SeedSearchEngine
             ? own
             : SearchTheSpirePoolData.CardPools.Values.SelectMany(values => values);
         return versioned.Concat(Cards).Distinct(StringComparer.Ordinal).ToArray();
+    }
+
+    private static string SimulateKaleidoCards(
+        ulong baseSeed,
+        SeedBranch branch,
+        RunCharacter character,
+        int ascension)
+    {
+        var nicheRng = Sts2ReferenceRng.Create(baseSeed + StreamHash(branch, "niche"));
+        var rewardsRng = Sts2ReferenceRng.Create(baseSeed + StreamHash(branch, "rewards"));
+        var pools = SearchTheSpirePoolData.CardPools.Keys
+            .Where(key => key != character)
+            .OrderBy(key => key.ToString())
+            .ToList();
+        var cards = new List<string>();
+        for (var reward = 0; reward < 2; reward++)
+        {
+            var shuffled = pools.ToList();
+            Sts2ReferenceRng.Shuffle(ref nicheRng, shuffled);
+            foreach (var owner in shuffled.Take(3))
+            {
+                var rarityRoll = Sts2ReferenceRng.NextDouble(ref rewardsRng);
+                var rareOdds = ascension >= 7 ? 0.0149 : 0.03;
+                var rarityPool = rarityRoll < rareOdds
+                    ? SearchTheSpirePoolData.RareCards[owner]
+                    : rarityRoll < 0.37 + rareOdds
+                        ? SearchTheSpirePoolData.UncommonCards[owner]
+                        : SearchTheSpirePoolData.CommonCards[owner];
+                cards.Add(rarityPool[Sts2ReferenceRng.NextInt(ref rewardsRng, rarityPool.Length)]);
+                _ = Sts2ReferenceRng.NextDouble(ref rewardsRng);
+            }
+        }
+
+        return string.Join('+', cards);
     }
 
     private static IReadOnlyList<string> PotionPool(RunCharacter character)
@@ -400,7 +655,8 @@ public sealed class SeedSearchEngine
         IReadOnlyList<string> cards,
         IReadOnlyList<string> potions,
         IReadOnlyList<string> relics,
-        ref Sts2ReferenceRng.RngState neowRng)
+        ref Sts2ReferenceRng.RngState neowRng,
+        string? kaleidoDistinct = null)
     {
         var details = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
@@ -408,6 +664,10 @@ public sealed class SeedSearchEngine
             ["reward2_card"] = rewardCards[1],
             ["reward3_card"] = rewardCards[2],
         };
+        if (kaleidoDistinct != null)
+        {
+            details["kaleido_distinct"] = kaleidoDistinct;
+        }
 
         if (offer == "neowsbones")
         {
@@ -712,6 +972,10 @@ public sealed class SeedSearchEngine
                 value /= (ulong)BetaAlphabet.Length;
             }
 
+            // SearchTheSpire's display_for_index writes the beta seed with the
+            // most significant digit first; keep the batch-search enumeration
+            // aligned with its candidate offsets.
+            Array.Reverse(buffer);
             return new string(buffer);
         }
     }
@@ -808,7 +1072,7 @@ public sealed class SeedSearchEngine
             return new RngState(NextState(ref seed), NextState(ref seed), NextState(ref seed), NextState(ref seed));
         }
 
-        public static void Shuffle(ref RngState state, IList<string> values)
+        public static void Shuffle<T>(ref RngState state, IList<T> values)
         {
             for (var index = values.Count - 1; index > 0; index--)
             {
@@ -816,6 +1080,9 @@ public sealed class SeedSearchEngine
                 (values[index], values[other]) = (values[other], values[index]);
             }
         }
+
+        public static double NextDouble(ref RngState state) =>
+            (Next(ref state) >> 11) * 1.1102230246251565E-16;
 
         public static int NextInt(ref RngState state, int max)
         {

@@ -11,6 +11,9 @@
     <Compile Include="../SeedSearchPrototypeCode/SearchTheSpirePoolData.cs" />
     <Compile Include="../SeedSearchPrototypeCode/SearchTheSpireModel.cs" />
     <Compile Include="../SeedSearchPrototypeCode/SeedSearchEngine.cs" />
+    <Compile Include="../SeedSearchPrototypeCode/Localization.cs" />
+    <Compile Include="../SeedSearchPrototypeCode/OptionArtKind.cs" />
     <Compile Include="Program.cs" />
+    <None Include="SeedLayoutParity.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

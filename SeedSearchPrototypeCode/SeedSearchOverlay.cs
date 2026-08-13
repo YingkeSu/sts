@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text.Json;
 using Godot;
+using MegaCrit.Sts2.Core.Platform;
 
 namespace SeedSearchPrototype;
 
@@ -15,9 +16,13 @@ public partial class SeedSearchOverlay : CanvasLayer
     private static readonly Color Accent = new("d9a441");
     private static readonly Color AccentDark = new("5e461f");
     private static readonly Color Danger = new("c56d65");
+    private const int CustomCandidateOption = 3;
+    private const long DefaultMaxCandidates = 10_000_000L;
+    private static readonly long[] CandidatePresets = { 10_000_000L, 100_000_000L, 200_000_000L };
 
     private readonly SeedSearchEngine _engine = new();
     private readonly List<SavedSearch> _savedSearches = new();
+    private readonly Dictionary<string, SeedSnapshot> _runtimeDetails = new(StringComparer.Ordinal);
 
     private Control _shell = null!;
     private Control _backdrop = null!;
@@ -36,6 +41,8 @@ public partial class SeedSearchOverlay : CanvasLayer
     private OptionButton _branchInput = null!;
     private OptionButton _stopAfterInput = null!;
     private OptionButton _maxCandidatesInput = null!;
+    private LineEdit _maxCandidatesCustomInput = null!;
+    private Control _customCandidatesRow = null!;
     private Button _neowInputButton = null!;
     private VBoxContainer _neowDetails = null!;
     private VBoxContainer _advancedDetails = null!;
@@ -43,6 +50,7 @@ public partial class SeedSearchOverlay : CanvasLayer
     private OptionButton _shopInput = null!;
     private OptionButton _restInput = null!;
     private OptionButton _characterInput = null!;
+    private TextureRect _characterPreview = null!;
     private OptionButton _ascensionInput = null!;
     private OptionButton _runModeInput = null!;
     private OptionButton _ancientInput = null!;
@@ -65,6 +73,18 @@ public partial class SeedSearchOverlay : CanvasLayer
         Layer = 1000;
         ProcessMode = ProcessModeEnum.Always;
         SetProcess(true);
+        OfficialGameLocalization.Attach();
+        string? language = null;
+        try
+        {
+            language = PlatformUtil.GetThreeLetterLanguageCode();
+        }
+        catch
+        {
+            language = null;
+        }
+
+        Localization.Initialize(language);
 
         _shell = new Control
         {
@@ -117,7 +137,9 @@ public partial class SeedSearchOverlay : CanvasLayer
 
         if (_searchTask != null)
         {
-            _progressLabel.Text = $"searching · {_lastProgress.ToString("N0", CultureInfo.InvariantCulture)} candidates checked";
+            _progressLabel.Text = Localization.F(
+                "searching · {0} candidates checked",
+                _lastProgress.ToString("N0", CultureInfo.InvariantCulture));
         }
     }
 
@@ -125,8 +147,8 @@ public partial class SeedSearchOverlay : CanvasLayer
     {
         var launcher = new Button
         {
-            Text = "Seed Search",
-            TooltipText = "Open the seed search board",
+            Text = Localization.T("Seed Search"),
+            TooltipText = Localization.T("Open the seed search board"),
             FocusMode = Control.FocusModeEnum.All,
             Size = new Vector2(170, 48)
         };
@@ -183,6 +205,12 @@ public partial class SeedSearchOverlay : CanvasLayer
         var beta = MakeLabel("v0.110.1", 13, MutedText);
         beta.VerticalAlignment = VerticalAlignment.Center;
         header.AddChild(beta);
+        var languageButton = MakeButton(
+            Localization.IsChinese ? "中文" : "English",
+            "Switch language",
+            86);
+        languageButton.Pressed += ToggleLanguage;
+        header.AddChild(languageButton);
         var closeButton = MakeButton("×", "Close", 40);
         closeButton.Pressed += () => _backdrop.Visible = false;
         header.AddChild(closeButton);
@@ -211,6 +239,40 @@ public partial class SeedSearchOverlay : CanvasLayer
         // own input without changing the shell's pass-through policy.
         _pickerDialog = new SearchTheSpirePickerDialog { Name = "SearchTheSpirePicker" };
         _shell.AddChild(_pickerDialog);
+    }
+
+    private void ToggleLanguage()
+    {
+        if (_searchTask != null)
+        {
+            CancelSearch();
+            _searchCancellation?.Dispose();
+            _searchCancellation = null;
+            _searchTask = null;
+        }
+
+        var board = _boardState;
+        var spoilers = _showSpoilers;
+        Localization.ToggleLanguage();
+
+        foreach (var child in _shell.GetChildren().ToArray())
+        {
+            _shell.RemoveChild(child);
+            child.QueueFree();
+        }
+
+        BuildLauncher();
+        BuildPages();
+        _boardState = board;
+        _showSpoilers = spoilers;
+        _lastQuery = null;
+        _lastResults = Array.Empty<SeedMatch>();
+        RefreshNeowInputText();
+        RefreshNeowDetails();
+        RefreshAdvancedDetails();
+        RefreshCharacterPreview();
+        RebuildSavedList();
+        ShowBoard();
     }
 
     private Control BuildBoardPage()
@@ -269,17 +331,34 @@ public partial class SeedSearchOverlay : CanvasLayer
 
         _neowInputButton = MakeButton("any Neow offers", "Open Neow offer picker", 210);
         _neowInputButton.Pressed += () => OpenSlotPicker("neowOffer");
-        _characterInput = MakeOption(new[] { "any character", "Ironclad", "Silent", "Regent", "Defect", "Necrobinder" }, 0, 210);
+        _characterInput = MakeOption(new[] { "any character", "Ironclad", "Silent", "Regent", "Defect", "Necrobinder" }, 0, 186);
+        SetCharacterIcons(_characterInput);
+        var characterCell = new HBoxContainer();
+        characterCell.AddThemeConstantOverride("separation", 8);
+        characterCell.AddChild(_characterInput);
+        _characterPreview = new TextureRect
+        {
+            CustomMinimumSize = new Vector2(64, 64),
+            ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
+            StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
+            Visible = false,
+        };
+        characterCell.AddChild(_characterPreview);
         _characterInput.ItemSelected += index =>
         {
             _boardState = _boardState.WithCharacter((RunCharacter)index);
             RefreshNeowDetails();
             RefreshAdvancedDetails();
+            RefreshCharacterPreview();
         };
-        _ascensionInput = MakeOption(new[] { "Ascension 0", "Ascension 5", "Ascension 10", "Ascension 15", "Ascension 20" }, 0, 210);
+        _ascensionInput = MakeOption(
+            SearchTheSpireCatalog.AscensionValues.Select(value => $"Ascension {value}").ToArray(),
+            0,
+            210);
         _ascensionInput.ItemSelected += index =>
         {
-            _boardState = _boardState.WithAscension((int)index * 5);
+            _boardState = _boardState.WithAscension(
+                SearchTheSpireCatalog.AscensionValues[Math.Clamp(index, 0, SearchTheSpireCatalog.AscensionValues.Length - 1)]);
             RefreshAdvancedDetails();
         };
         _runModeInput = MakeOption(new[] { "plain run" }, 0, 210);
@@ -289,7 +368,7 @@ public partial class SeedSearchOverlay : CanvasLayer
         _ancientInput = MakeOption(new[] { "Any", "Ancient A", "Ancient B", "Ancient C", "Ancient D" }, 0, 210);
         _bossInput = MakeOption(new[] { "Any", "Boss 1", "Boss 2", "Boss 3" }, 0, 210);
         AddField(grid, "Neow", _neowInputButton);
-        AddField(grid, "Character", _characterInput);
+        AddField(grid, "Character", characterCell);
         AddField(grid, "Ascension", _ascensionInput);
         AddField(grid, "Run mode", _runModeInput);
         AddField(grid, "Act 1 elites", _eliteInput);
@@ -318,7 +397,7 @@ public partial class SeedSearchOverlay : CanvasLayer
         controls.AddThemeConstantOverride("v_separation", 8);
         content.AddChild(controls);
         _stopAfterInput = MakeOption(new[] { "5 matches", "10 matches", "20 matches", "50 matches" }, 2, 210);
-        _maxCandidatesInput = MakeOption(new[] { "10k candidates", "50k candidates", "250k candidates", "1m candidates" }, 2, 210);
+        _maxCandidatesInput = MakeOption(new[] { "10M candidates", "100M candidates", "200M candidates", "custom" }, 0, 210);
         _advancedInput = new LineEdit
         {
             Text = "0",
@@ -328,6 +407,19 @@ public partial class SeedSearchOverlay : CanvasLayer
         AddField(controls, "stop after", _stopAfterInput);
         AddField(controls, "runs to search", _maxCandidatesInput);
         AddField(controls, "advanced offset", _advancedInput);
+
+        _customCandidatesRow = new HBoxContainer { Visible = false };
+        _customCandidatesRow.AddThemeConstantOverride("separation", 8);
+        _customCandidatesRow.AddChild(MakeLabel("custom runs", 13, MutedText));
+        _maxCandidatesCustomInput = new LineEdit
+        {
+            PlaceholderText = Localization.T("e.g. 30000000 or 30M"),
+            Text = DefaultMaxCandidates.ToString(CultureInfo.InvariantCulture),
+            CustomMinimumSize = new Vector2(210, 36)
+        };
+        _customCandidatesRow.AddChild(_maxCandidatesCustomInput);
+        content.AddChild(_customCandidatesRow);
+        _maxCandidatesInput.ItemSelected += _ => UpdateCustomCandidatesVisibility();
 
         var actions = new HBoxContainer();
         actions.AddThemeConstantOverride("separation", 8);
@@ -352,7 +444,7 @@ public partial class SeedSearchOverlay : CanvasLayer
         content.AddChild(inspectRow);
         _inspectInput = new LineEdit
         {
-            PlaceholderText = "paste a seed…",
+            PlaceholderText = Localization.T("paste a seed…"),
             SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
             CustomMinimumSize = new Vector2(0, 36)
         };
@@ -494,7 +586,7 @@ public partial class SeedSearchOverlay : CanvasLayer
 
         _searchButton.Disabled = true;
         _cancelButton.Disabled = false;
-        _progressLabel.Text = "searching";
+        _progressLabel.Text = Localization.T("searching");
         SetStatus("searching…", MutedText);
     }
 
@@ -506,7 +598,7 @@ public partial class SeedSearchOverlay : CanvasLayer
         }
 
         _searchCancellation?.Cancel();
-        _progressLabel.Text = "cancelling…";
+        _progressLabel.Text = Localization.T("cancelling…");
     }
 
     private void InspectSeed()
@@ -514,7 +606,7 @@ public partial class SeedSearchOverlay : CanvasLayer
         var seed = _inspectInput.Text.Trim();
         if (seed.Length == 0)
         {
-            _inspectStatusLabel.Text = "paste a seed first";
+            _inspectStatusLabel.Text = Localization.T("paste a seed first");
             return;
         }
 
@@ -538,9 +630,14 @@ public partial class SeedSearchOverlay : CanvasLayer
         _lastQuery = query;
         ApplyResults(new[] { match });
         _inspectStatusLabel.Text = snapshot.Backend == "game-runtime"
-            ? $"inspected {seed} · game runtime"
-            : $"inspected {seed} · reference engine";
-        SetStatus($"inspected {seed} · {BackendLabel(snapshot.Backend)}", Accent);
+            ? Localization.F("inspected {0} · game runtime", seed)
+            : Localization.F("inspected {0} · reference engine", seed);
+        SetStatus(
+            Localization.F(
+                "inspected {0} · {1}",
+                seed,
+                Localization.T(BackendLabel(snapshot.Backend))),
+            Accent);
     }
 
     private void ApplyResults(IReadOnlyList<SeedMatch> results)
@@ -548,8 +645,8 @@ public partial class SeedSearchOverlay : CanvasLayer
         _lastResults = results;
         _searchButton.Disabled = false;
         _cancelButton.Disabled = true;
-        _resultCountLabel.Text = $"{results.Count} matches";
-        _progressLabel.Text = "search complete";
+        _resultCountLabel.Text = Localization.F("{0} matches", results.Count);
+        _progressLabel.Text = Localization.T("search complete");
         ClearChildren(_resultsList);
 
         if (results.Count == 0)
@@ -564,7 +661,11 @@ public partial class SeedSearchOverlay : CanvasLayer
         }
 
         var hitMatchCap = _lastQuery != null && results.Count >= _lastQuery.StopAfter;
-        SetStatus(hitMatchCap ? "stopped at the match cap" : $"searched {_lastProgress:N0} candidates", Accent);
+        SetStatus(
+            hitMatchCap
+                ? Localization.T("stopped at the match cap")
+                : Localization.F("searched {0} candidates", _lastProgress.ToString("N0", CultureInfo.InvariantCulture)),
+            Accent);
     }
 
     private Control BuildResultRow(SeedMatch match)
@@ -583,13 +684,18 @@ public partial class SeedSearchOverlay : CanvasLayer
 
         var seedButton = MakeButton(match.Seed, "Copy seed", 132);
         seedButton.Pressed += () => CopyToClipboard(match.Seed);
-        var detail = BuildResultDetail(match);
-        detail.Visible = false;
+        Control? detail = null;
         var detailButton = MakeButton("details", "Expand this seed's preview", 132);
         detailButton.Pressed += () =>
         {
+            if (detail == null)
+            {
+                detail = BuildResultDetail(match.Seed, EnrichSnapshot(match));
+                wrapper.AddChild(detail);
+            }
+
             detail.Visible = !detail.Visible;
-            detailButton.Text = detail.Visible ? "hide details" : "details";
+            detailButton.Text = Localization.T(detail.Visible ? "hide details" : "details");
         };
         var seedColumn = new VBoxContainer();
         seedColumn.AddThemeConstantOverride("separation", 4);
@@ -609,12 +715,10 @@ public partial class SeedSearchOverlay : CanvasLayer
             content.AddChild(spoiler);
         }
 
-        wrapper.AddChild(detail);
-
         return wrapper;
     }
 
-    private Control BuildResultDetail(SeedMatch match)
+    private Control BuildResultDetail(string seed, SeedSnapshot snapshot)
     {
         var panel = new PanelContainer();
         panel.AddThemeStyleboxOverride("panel", MakeStyle(Background, Border, 6));
@@ -625,24 +729,110 @@ public partial class SeedSearchOverlay : CanvasLayer
         margin.AddChild(content);
 
         content.AddChild(MakeLabel("seed preview", 13, Accent));
-        content.AddChild(MakeLabel($"backend · {BackendLabel(match.Snapshot.Backend)}", 12, MutedText));
-        content.AddChild(MakeLabel($"Act 1 path · {match.Snapshot.Act1Map}", 12, Text));
-        content.AddChild(MakeLabel($"Neow detail · {match.Snapshot.NeowOffers}", 12, Text));
-        content.AddChild(MakeLabel($"Ancients · {match.Snapshot.Ancients}    Bosses · {match.Snapshot.Bosses}", 12, Text));
         content.AddChild(MakeLabel(
-            $"early route counts · {match.Snapshot.EliteCount} elites · {match.Snapshot.ShopCount} shops · {match.Snapshot.RestSiteCount} rest sites",
+            Localization.F("backend · {0}", Localization.T(BackendLabel(snapshot.Backend))),
+            12,
+            MutedText));
+        content.AddChild(MakeLabel(Localization.F("Act 1 path · {0}", snapshot.Act1Map), 12, Text));
+        content.AddChild(MakeLabel(Localization.F("Neow detail · {0}", snapshot.NeowOffers), 12, Text));
+        content.AddChild(MakeLabel(
+            Localization.F(
+                "Ancients · {0}    Bosses · {1}",
+                snapshot.Ancients,
+                snapshot.Bosses),
+            12,
+            Text));
+        content.AddChild(MakeLabel(
+            Localization.F(
+                "early route counts · {0} elites · {1} shops · {2} rest sites",
+                snapshot.EliteCount,
+                snapshot.ShopCount,
+                snapshot.RestSiteCount),
             12,
             MutedText));
 
+        if (snapshot.Map is { } layout)
+        {
+            content.AddChild(MakeLabel("Act 1 map", 13, Accent));
+            var map = new MapPreview(layout) { SizeFlagsHorizontal = Control.SizeFlags.ShrinkCenter };
+            content.AddChild(map);
+            var legend = BuildMapLegend();
+            legend.SizeFlagsHorizontal = Control.SizeFlags.ShrinkCenter;
+            content.AddChild(legend);
+        }
+
         if (_lastQuery is { HiddenSpec.Length: > 0 } query)
         {
-            content.AddChild(MakeLabel($"extended pins · {query.HiddenSpec}", 12, MutedText));
+            content.AddChild(MakeLabel(Localization.F("extended pins · {0}", query.HiddenSpec), 12, MutedText));
         }
 
         var copy = MakeButton("copy seed", "Copy this seed", 94);
-        copy.Pressed += () => CopyToClipboard(match.Seed);
+        copy.Pressed += () => CopyToClipboard(seed);
         content.AddChild(copy);
         return panel;
+    }
+
+    private SeedSnapshot EnrichSnapshot(SeedMatch match)
+    {
+        if (match.Snapshot.Map != null || _lastQuery == null)
+        {
+            return match.Snapshot;
+        }
+
+        var context = BuildContext(_lastQuery);
+        var key = $"{match.Seed}|{context}";
+        if (_runtimeDetails.TryGetValue(key, out var cached))
+        {
+            return cached;
+        }
+
+        var snapshot = GameSeedRuntimeBackend.TryInspect(
+            match.Seed,
+            _lastQuery.Branch,
+            _lastQuery.Character,
+            _lastQuery.Ascension,
+            context,
+            out var runtimeSnapshot,
+            out var reason)
+            ? runtimeSnapshot
+            : match.Snapshot;
+        if (runtimeSnapshot == null && !string.IsNullOrWhiteSpace(reason))
+        {
+            MainFile.Logger.Warn($"Game runtime map preview unavailable for {match.Seed}: {reason}");
+        }
+
+        _runtimeDetails[key] = snapshot;
+        return snapshot;
+    }
+
+    private static Control BuildMapLegend()
+    {
+        var row = new HBoxContainer();
+        row.AddThemeConstantOverride("separation", 12);
+        AddLegendItem(row, new Color("c0392b"), "M", "Monster");
+        AddLegendItem(row, new Color("8e44ad"), "E", "Elite");
+        AddLegendItem(row, new Color("27ae60"), "R", "Rest site");
+        AddLegendItem(row, new Color("e1b12c"), "$", "Shop");
+        AddLegendItem(row, new Color("e67e22"), "T", "Treasure");
+        AddLegendItem(row, new Color("7f8c8d"), "?", "Unknown");
+        AddLegendItem(row, new Color("7b241c"), "B", "Boss");
+        AddLegendItem(row, new Color("2980b9"), "A", "Ancient");
+        return row;
+    }
+
+    private static void AddLegendItem(HBoxContainer row, Color color, string glyph, string label)
+    {
+        var item = new HBoxContainer();
+        item.AddThemeConstantOverride("separation", 4);
+        item.AddChild(new ColorRect
+        {
+            Color = color,
+            CustomMinimumSize = new Vector2(12, 12),
+        });
+        var text = MakeLabel(label, 11, MutedText);
+        text.Text = $"{glyph} {text.Text}";
+        item.AddChild(text);
+        row.AddChild(item);
     }
 
     private static string BackendLabel(string backend) => backend switch
@@ -722,22 +912,27 @@ public partial class SeedSearchOverlay : CanvasLayer
                 var view = _boardState.DescribeSlot(slot.Id);
                 var row = new HBoxContainer();
                 row.AddThemeConstantOverride("separation", 8);
-                var label = MakeLabel(slot.Label, 11, MutedText);
+                var label = MakeLabel(Localization.T(slot.Label), 11, MutedText);
                 label.CustomMinimumSize = new Vector2(150, 34);
                 label.AutowrapMode = TextServer.AutowrapMode.WordSmart;
                 row.AddChild(label);
 
                 var selected = _boardState.Selected(slot.Id);
                 var selectedTitle = selected == null
-                    ? "any"
-                    : view.Options.FirstOrDefault(option => option.Id == selected)?.Title ?? selected;
-                var button = MakeButton(selectedTitle, $"Open {slot.Label} picker", 0);
+                    ? Localization.T("any")
+                    : view.Options.FirstOrDefault(option => option.Id == selected) is { } option
+                        ? Localization.OptionTitle(option)
+                        : selected;
+                var button = MakeButton(
+                    selectedTitle,
+                    Localization.F("Open {0} picker", Localization.T(slot.Label)),
+                    0);
                 button.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
                 if (view.RequiresCharacter)
                 {
-                    button.Text = "choose a character first";
+                    button.Text = Localization.T("choose a character first");
                     button.Disabled = true;
-                    button.TooltipText = "this child slot needs a character-specific card pool";
+                    button.TooltipText = Localization.T("this child slot needs a character-specific card pool");
                 }
                 else
                 {
@@ -768,7 +963,7 @@ public partial class SeedSearchOverlay : CanvasLayer
                      .Where(slot => slot.ParentId == null && slot.Cluster != null && slot.Cluster != "neow" && slot.Id != "rares")
                      .GroupBy(slot => slot.Cluster!, StringComparer.Ordinal))
         {
-            _advancedDetails.AddChild(MakeLabel(cluster.Key, 12, Accent));
+            _advancedDetails.AddChild(MakeLabel(Localization.T(cluster.Key), 12, Accent));
             foreach (var slot in cluster)
             {
                 AddAdvancedSlotRow(_advancedDetails, slot, 0);
@@ -780,7 +975,10 @@ public partial class SeedSearchOverlay : CanvasLayer
     {
         var row = new HBoxContainer();
         row.AddThemeConstantOverride("separation", 8);
-        var label = MakeLabel(new string(' ', depth * 2) + slot.Label, 11, MutedText);
+        var label = MakeLabel(
+            new string(' ', depth * 2) + Localization.T(slot.Label),
+            11,
+            MutedText);
         label.CustomMinimumSize = new Vector2(170, 34);
         label.AutowrapMode = TextServer.AutowrapMode.WordSmart;
         row.AddChild(label);
@@ -789,26 +987,31 @@ public partial class SeedSearchOverlay : CanvasLayer
         var view = _boardState.DescribeSlot(slot.Id);
         var selected = _boardState.Selected(slot.Id);
         var selectedTitle = selected == null
-            ? "any"
-            : view.Options.FirstOrDefault(option => option.Id == selected)?.Title ?? selected;
-        var button = MakeButton(selectedTitle, $"Open {slot.Label} picker", 0);
+            ? Localization.T("any")
+            : view.Options.FirstOrDefault(option => option.Id == selected) is { } option
+                ? Localization.OptionTitle(option)
+                : selected;
+        var button = MakeButton(
+            selectedTitle,
+            Localization.F("Open {0} picker", Localization.T(slot.Label)),
+            0);
         button.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
         if (!enabled)
         {
             button.Text = slot.RequiresAscension > _boardState.Ascension
-                ? $"A{slot.RequiresAscension} only"
+                ? Localization.F("A{0} only", slot.RequiresAscension)
                 : slot.Id == "rares"
-                    ? "choose a fresh-reward Neow offer"
+                    ? Localization.T("choose a fresh-reward Neow offer")
                     : slot.Id == "rewardOrdered"
-                        ? "add a reward card first"
-                        : "select its parent first";
+                        ? Localization.T("add a reward card first")
+                        : Localization.T("select its parent first");
             button.Disabled = true;
         }
         else if (view.RequiresCharacter)
         {
-            button.Text = "choose a character first";
+            button.Text = Localization.T("choose a character first");
             button.Disabled = true;
-            button.TooltipText = "this slot needs a character-specific card pool";
+            button.TooltipText = Localization.T("this slot needs a character-specific card pool");
         }
         else
         {
@@ -826,7 +1029,7 @@ public partial class SeedSearchOverlay : CanvasLayer
     private void ToggleSpoilers()
     {
         _showSpoilers = !_showSpoilers;
-        _spoilerButton.Text = _showSpoilers ? "hide spoilers" : "show all spoilers";
+        _spoilerButton.Text = Localization.T(_showSpoilers ? "hide spoilers" : "show all spoilers");
         ApplyResults(_lastResults);
     }
 
@@ -857,7 +1060,7 @@ public partial class SeedSearchOverlay : CanvasLayer
     {
         var seed = SeedSearchEngine.CreateSeed(ReadBranch(), DateTime.UtcNow.Ticks);
         CopyToClipboard(seed);
-        SetStatus($"copied {seed}", Accent);
+        SetStatus(Localization.F("copied {0}", seed), Accent);
     }
 
     private void ClearBoard()
@@ -867,17 +1070,20 @@ public partial class SeedSearchOverlay : CanvasLayer
         _lastResults = Array.Empty<SeedMatch>();
         _boardState = SearchTheSpireBoardState.Empty;
         _characterInput.Selected = 0;
+        RefreshCharacterPreview();
         _ascensionInput.Selected = 0;
-        _neowInputButton.Text = "any Neow offers";
+        _neowInputButton.Text = Localization.T("any Neow offers");
         RefreshNeowDetails();
         RefreshAdvancedDetails();
         _inspectInput.Text = string.Empty;
         _inspectStatusLabel.Text = string.Empty;
-        _resultCountLabel.Text = "0 matches";
-        _progressLabel.Text = "ready";
+        _resultCountLabel.Text = Localization.T("0 matches");
+        _progressLabel.Text = Localization.T("ready");
         ClearChildren(_resultsList);
         _stopAfterInput.Selected = 2;
-        _maxCandidatesInput.Selected = 2;
+        _maxCandidatesInput.Selected = 0;
+        _maxCandidatesCustomInput.Text = DefaultMaxCandidates.ToString(CultureInfo.InvariantCulture);
+        UpdateCustomCandidatesVisibility();
         _advancedInput.Text = "0";
         _eliteInput.Selected = 0;
         _shopInput.Selected = 0;
@@ -890,10 +1096,13 @@ public partial class SeedSearchOverlay : CanvasLayer
     private void RefreshNeowInputText()
     {
         var selected = _boardState.Selected("neowOffer");
+        var option = SearchTheSpireCatalog.OptionsFor(SearchTheSpireCatalog.GetSlot("neowOffer"), _boardState)
+            .FirstOrDefault(option => option.Id == selected);
         _neowInputButton.Text = selected == null
-            ? "any Neow offers"
-            : SearchTheSpireCatalog.OptionsFor(SearchTheSpireCatalog.GetSlot("neowOffer"), _boardState)
-                .FirstOrDefault(option => option.Id == selected)?.Title ?? selected;
+            ? Localization.T("any Neow offers")
+            : option != null
+                ? Localization.OptionTitle(option)
+                : selected;
     }
 
     private void RebuildSavedList()
@@ -909,7 +1118,14 @@ public partial class SeedSearchOverlay : CanvasLayer
         {
             var row = new HBoxContainer();
             row.AddThemeConstantOverride("separation", 10);
-            row.AddChild(MakeLabel($"{saved.Results.Count} matches · {saved.Query.NeowFilter} · offset {saved.Query.StartOffset}", 14, Text));
+            row.AddChild(MakeLabel(
+                Localization.F(
+                    "{0} matches · {1} · offset {2}",
+                    saved.Results.Count,
+                    Localization.NeowFilterName(saved.Query.NeowFilter),
+                    saved.Query.StartOffset),
+                14,
+                Text));
             var open = MakeButton("open", "Open saved results", 72);
             open.Pressed += () => OpenSavedSearch(saved);
             row.AddChild(open);
@@ -954,7 +1170,10 @@ public partial class SeedSearchOverlay : CanvasLayer
             var row = new HBoxContainer();
             row.AddThemeConstantOverride("separation", 10);
             var label = MakeLabel(
-                $"{group.Count()} {(group.Count() == 1 ? "search" : "searches")} · {DescribeQuery(first.Query)}",
+                Localization.F(
+                    group.Count() == 1 ? "{0} search · {1}" : "{0} searches · {1}",
+                    group.Count(),
+                    DescribeQuery(first.Query)),
                 14,
                 Text);
             label.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
@@ -975,7 +1194,7 @@ public partial class SeedSearchOverlay : CanvasLayer
         var parts = new List<string>();
         if (query.Character != RunCharacter.Any)
         {
-            parts.Add(query.Character.ToString());
+            parts.Add(Localization.CharacterName(query.Character));
         }
 
         if (!string.IsNullOrWhiteSpace(query.HiddenSpec))
@@ -984,7 +1203,7 @@ public partial class SeedSearchOverlay : CanvasLayer
         }
         else
         {
-            parts.Add("any run start");
+            parts.Add(Localization.T("any run start"));
         }
 
         return string.Join(" · ", parts);
@@ -1003,7 +1222,11 @@ public partial class SeedSearchOverlay : CanvasLayer
         _boardState = SearchTheSpireBoardState.FromSpec(query.Character, query.Ascension, query.HiddenSpec);
         _branchInput.Selected = 0;
         _characterInput.Selected = Math.Clamp((int)query.Character, 0, _characterInput.ItemCount - 1);
-        _ascensionInput.Selected = Math.Clamp(query.Ascension / 5, 0, _ascensionInput.ItemCount - 1);
+        RefreshCharacterPreview();
+        _ascensionInput.Selected = Math.Clamp(
+            Array.IndexOf(SearchTheSpireCatalog.AscensionValues, query.Ascension),
+            0,
+            _ascensionInput.ItemCount - 1);
         _runModeInput.Selected = Math.Clamp((int)query.RunMode, 0, _runModeInput.ItemCount - 1);
         _stopAfterInput.Selected = query.StopAfter switch
         {
@@ -1012,35 +1235,27 @@ public partial class SeedSearchOverlay : CanvasLayer
             <= 20 => 2,
             _ => 3,
         };
-        _maxCandidatesInput.Selected = query.MaxCandidates switch
+        var presetIndex = Array.IndexOf(CandidatePresets, query.MaxCandidates);
+        if (presetIndex >= 0)
         {
-            <= 10_000 => 0,
-            <= 50_000 => 1,
-            <= 250_000 => 2,
-            _ => 3,
-        };
+            _maxCandidatesInput.Selected = presetIndex;
+        }
+        else
+        {
+            _maxCandidatesInput.Selected = CustomCandidateOption;
+            _maxCandidatesCustomInput.Text = query.MaxCandidates.ToString(CultureInfo.InvariantCulture);
+        }
+
+        UpdateCustomCandidatesVisibility();
         _eliteInput.Selected = Math.Clamp(query.MinimumElites, 0, _eliteInput.ItemCount - 1);
         _shopInput.Selected = Math.Clamp(query.MinimumShops, 0, _shopInput.ItemCount - 1);
         _restInput.Selected = Math.Clamp(query.MinimumRestSites, 0, _restInput.ItemCount - 1);
-        _ancientInput.Selected = FindOptionIndex(_ancientInput, query.AncientFilter);
-        _bossInput.Selected = FindOptionIndex(_bossInput, query.BossFilter);
+        _ancientInput.Selected = AncientFilterIndex(query.AncientFilter);
+        _bossInput.Selected = BossFilterIndex(query.BossFilter);
         _advancedInput.Text = query.StartOffset.ToString(CultureInfo.InvariantCulture);
         RefreshNeowInputText();
         RefreshNeowDetails();
         RefreshAdvancedDetails();
-    }
-
-    private static int FindOptionIndex(OptionButton input, string value)
-    {
-        for (var index = 0; index < input.ItemCount; index++)
-        {
-            if (string.Equals(input.GetItemText(index), value, StringComparison.OrdinalIgnoreCase))
-            {
-                return index;
-            }
-        }
-
-        return 0;
     }
 
     private void ShowSaved()
@@ -1063,16 +1278,16 @@ public partial class SeedSearchOverlay : CanvasLayer
             : 0;
 
         var stopAfter = new[] { 5, 10, 20, 50 }[_stopAfterInput.Selected];
-        var maxCandidates = new[] { 10_000L, 50_000L, 250_000L, 1_000_000L }[_maxCandidatesInput.Selected];
         return new SeedQuery(
             Branch: ReadBranch(),
             GameApiVersion: "0.110.1",
             Character: (RunCharacter)_characterInput.Selected,
-            Ascension: _ascensionInput.Selected * 5,
+            Ascension: SearchTheSpireCatalog.AscensionValues[
+                Math.Clamp(_ascensionInput.Selected, 0, SearchTheSpireCatalog.AscensionValues.Length - 1)],
             RunMode: (RunMode)_runModeInput.Selected,
             StopAfter: stopAfter,
             StartOffset: offset,
-            MaxCandidates: maxCandidates,
+            MaxCandidates: ReadMaxCandidates(),
             MinimumElites: _eliteInput.Selected,
             MinimumShops: _shopInput.Selected,
             MinimumRestSites: _restInput.Selected,
@@ -1081,9 +1296,106 @@ public partial class SeedSearchOverlay : CanvasLayer
                     ? NeowFilter.HasCurse
                     : NeowFilter.HasBlessing
                 : NeowFilter.Any,
-            AncientFilter: _ancientInput.GetItemText(_ancientInput.Selected),
-            BossFilter: _bossInput.GetItemText(_bossInput.Selected),
+            AncientFilter: AncientFilterValue(_ancientInput.Selected),
+            BossFilter: BossFilterValue(_bossInput.Selected),
             HiddenSpec: _boardState.ToSpec());
+    }
+
+    private static readonly string[] AncientFilterValues =
+        { "Any", "Ancient A", "Ancient B", "Ancient C", "Ancient D" };
+
+    private static readonly string[] BossFilterValues =
+        { "Any", "Boss 1", "Boss 2", "Boss 3" };
+
+    private static string AncientFilterValue(int index) =>
+        AncientFilterValues[Math.Clamp(index, 0, AncientFilterValues.Length - 1)];
+
+    private static string BossFilterValue(int index) =>
+        BossFilterValues[Math.Clamp(index, 0, BossFilterValues.Length - 1)];
+
+    private static int AncientFilterIndex(string value) =>
+        Math.Clamp(Array.IndexOf(AncientFilterValues, value), 0, AncientFilterValues.Length - 1);
+
+    private static int BossFilterIndex(string value) =>
+        Math.Clamp(Array.IndexOf(BossFilterValues, value), 0, BossFilterValues.Length - 1);
+
+    private long ReadMaxCandidates()
+    {
+        if (_maxCandidatesInput.Selected == CustomCandidateOption)
+        {
+            return ParseCandidateCount(_maxCandidatesCustomInput.Text, DefaultMaxCandidates);
+        }
+
+        return CandidatePresets[Math.Clamp(_maxCandidatesInput.Selected, 0, CandidatePresets.Length - 1)];
+    }
+
+    private static long ParseCandidateCount(string text, long fallback)
+    {
+        var value = text.Trim();
+        long multiplier = 1;
+        if (value.EndsWith("k", StringComparison.OrdinalIgnoreCase))
+        {
+            multiplier = 1_000;
+            value = value.Substring(0, value.Length - 1).Trim();
+        }
+        else if (value.EndsWith("m", StringComparison.OrdinalIgnoreCase))
+        {
+            multiplier = 1_000_000;
+            value = value.Substring(0, value.Length - 1).Trim();
+        }
+
+        if (!long.TryParse(
+                value,
+                NumberStyles.Integer | NumberStyles.AllowThousands,
+                CultureInfo.InvariantCulture,
+                out var count) ||
+            count <= 0)
+        {
+            return fallback;
+        }
+
+        try
+        {
+            return Math.Max(1, checked(count * multiplier));
+        }
+        catch (OverflowException)
+        {
+            return fallback;
+        }
+    }
+
+    private void UpdateCustomCandidatesVisibility()
+    {
+        if (_customCandidatesRow == null)
+        {
+            return;
+        }
+
+        _customCandidatesRow.Visible = _maxCandidatesInput.Selected == CustomCandidateOption;
+    }
+
+    private void RefreshCharacterPreview()
+    {
+        if (_characterPreview == null)
+        {
+            return;
+        }
+
+        var character = _characterInput != null ? (RunCharacter)_characterInput.Selected : RunCharacter.Any;
+        _characterPreview.Texture = GameArtPreview.CharacterPortrait(character);
+        _characterPreview.Visible = _characterPreview.Texture != null;
+    }
+
+    private static void SetCharacterIcons(OptionButton option)
+    {
+        for (var index = 1; index < option.ItemCount; index++)
+        {
+            var texture = GameArtPreview.CharacterIcon((RunCharacter)index);
+            if (texture != null)
+            {
+                option.SetItemIcon(index, texture);
+            }
+        }
     }
 
     private SeedBranch ReadBranch() => SeedBranch.PublicBeta;
@@ -1095,12 +1407,12 @@ public partial class SeedSearchOverlay : CanvasLayer
     {
         _searchButton.Disabled = false;
         _cancelButton.Disabled = true;
-        _progressLabel.Text = "ready";
+        _progressLabel.Text = Localization.T("ready");
     }
 
     private void SetStatus(string text, Color color)
     {
-        _statusLabel.Text = text;
+        _statusLabel.Text = Localization.T(text);
         _statusLabel.AddThemeColorOverride("font_color", color);
     }
 
@@ -1117,7 +1429,7 @@ public partial class SeedSearchOverlay : CanvasLayer
         var option = new OptionButton { CustomMinimumSize = new Vector2(width, 36) };
         foreach (var item in options)
         {
-            option.AddItem(item);
+            option.AddItem(Localization.T(item));
         }
 
         option.Selected = selected;
@@ -1128,8 +1440,8 @@ public partial class SeedSearchOverlay : CanvasLayer
     {
         var button = new Button
         {
-            Text = text,
-            TooltipText = tooltip,
+            Text = Localization.T(text),
+            TooltipText = Localization.T(tooltip),
             CustomMinimumSize = new Vector2(width, 36),
             FocusMode = Control.FocusModeEnum.All
         };
@@ -1142,7 +1454,7 @@ public partial class SeedSearchOverlay : CanvasLayer
 
     private static Label MakeLabel(string text, int fontSize, Color color)
     {
-        var label = new Label { Text = text };
+        var label = new Label { Text = Localization.T(text) };
         label.AddThemeFontSizeOverride("font_size", fontSize);
         label.AddThemeColorOverride("font_color", color);
         label.VerticalAlignment = VerticalAlignment.Center;

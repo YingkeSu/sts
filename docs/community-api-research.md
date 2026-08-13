@@ -394,3 +394,28 @@
   - `src/RitsuLibFramework.ModRunRng.cs`
 - `ptrlrd/spire-codex`
   - `README.md`
+
+## 6. 卡图、遗物与首领图加载
+
+社区 Mod 不需要自己打包或拆包 `Slay the Spire 2.pck`，官方运行时已经暴露了
+资源读取入口：
+
+- `CardModel.Portrait` / `CardModel.PortraitPath` 直接读游戏资源包内的卡图；
+  `ModelDb.AllCards` 枚举卡牌，`CardModel.Pool.Title` 定位角色卡池。
+- `CharacterModel.CharacterSelectIcon` / `CharacterModel.IconTexture` 提供角色
+  肖像与图标；`ModelDb.AllCharacters` 枚举角色。
+- `RelicModel.BigIcon` / `RelicModel.Icon` 提供遗物图，`ModelDb.AllRelics`
+  枚举遗物。
+- Boss 走 `EncounterModel` 的 `RoomType == Boss` 条目，`ImageHelper`
+  `GetRoomIconPath(MapPointType.Boss, RoomType.Boss, modelId)` 给出首领图路径。
+- 反编译源码确认路径由 `ImageHelper.GetImagePath("atlases/...")` 统一换算，
+  因此悬停预览与游戏内图鉴走的是同一套 `res://` 资产，版本更新后会自动跟随
+  资源包。
+
+来源：
+- [zhiyue/sts2-rl-agent 反编译 `CardModel.cs`](https://github.com/zhiyue/sts2-rl-agent/blob/main/decompiled/MegaCrit.Sts2.Core.Models/CardModel.cs)
+- [zhiyue/sts2-rl-agent 反编译 `CharacterModel.cs`](https://github.com/zhiyue/sts2-rl-agent/blob/main/decompiled/MegaCrit.Sts2.Core.Models/CharacterModel.cs)
+- [zhiyue/sts2-rl-agent 反编译 `ImageHelper.cs`](https://github.com/zhiyue/sts2-rl-agent/blob/main/decompiled/MegaCrit.Sts2.Core.Helpers/ImageHelper.cs)
+
+结论：官方模型 API + `ResourceLoader.Load<Texture2D>` 是可用且无需额外资源
+依赖的社区方案；本项目在 `GameArtPreview.cs` 中封装了该适配层。

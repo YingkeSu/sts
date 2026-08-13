@@ -7,25 +7,30 @@
 - Board / Popular / Saved 标签页；
 - 当前 public beta 分支选择；
 - Neow、Act 1 精英、商店、休息点筛选；
+- 进阶覆盖 A0/A5/A10/A15/A20，与 SearchTheSpire board state 共用同一套数据源；
 - 搜索数量、候选范围、偏移量；
 - Inspect seed；
 - 结果表、保存搜索、复制种子、复制搜索规格、剧透开关。
 - 点击具体 Neow 遗物后展开其条件子槽位，例如 Neow's Bones 的两个 grant、curse，以及 grant 遗物继续产生的牌/药水/胶囊约束；子槽支持分组 Picker、搜索和不可用原因提示。
 - `run layout & drop pins` 展开 Act 1 地图、三幕首领、A10 第二首领、Ancient、奖励牌包、商店遗物、遗物袋和事件的同类嵌套 Picker；地图/首领会按地图联动，重复遗物与重复首领会被阻止。
-- 点击结果行中的 `details` 查看该种子的 Act 1、Neow、Ancient、Boss 与早期路线摘要。
+- 点击结果行中的 `details` 查看该种子的 Act 1、Neow、Ancient、Boss 与早期路线摘要；有游戏运行时可用时，会按 SearchTheSpire 预览的样式绘制 Act 1 节点地图（类型着色、虚线路线、Boss/Ancient 收尾）。
+- 卡牌、遗物与首领选择器以游戏官方资源图为主体：卡牌直接显示卡图，遗物和
+  首领显示游戏内图标；角色下拉框带角色图标，并随选中角色展示角色肖像。
 
 ## 本地构建
 
+前置要求：本机已全局安装 .NET 9 SDK（用 `dotnet --version` 确认）。
+
 ```bash
-/tmp/dotnet9/dotnet restore SeedSearchPrototype.csproj
-/tmp/dotnet9/dotnet build SeedSearchPrototype.csproj --no-restore
-/tmp/dotnet9/dotnet run --project tests/SeedSearchCoreChecks.csproj
+dotnet restore SeedSearchPrototype.csproj
+dotnet build SeedSearchPrototype.csproj --no-restore
+dotnet run --project tests/SeedSearchCoreChecks.csproj
 ```
 
-默认构建不会安装 Mod，避免开发时意外加载。需要显式安装时使用：
+默认构建会安装 Mod 到游戏 Mods 目录，重启游戏后生效。如果只想编译不安装，使用：
 
 ```bash
-/tmp/dotnet9/dotnet build SeedSearchPrototype.csproj --no-restore -p:InstallMod=true
+dotnet build SeedSearchPrototype.csproj --no-restore -p:InstallMod=false
 ```
 
 安装目标是本机游戏的：
@@ -41,6 +46,8 @@ SlayTheSpire2.app/Contents/MacOS/mods/SeedSearchPrototype/
 - 当前 manifest 钉在 public beta `v0.110.1`；不要把其它分支的 RNG 结果混用。
 - SearchTheSpire 的 seed preview 用于版本与字段抽检；它是浏览器端 Rust/WASM 工具，不作为 Mod 的运行时依赖。
 - Inspect seed 会优先调用游戏运行时的单种子预览；批量搜索使用本地、可替换的 reference RNG backend。查询模型、Picker 与结果详情已经独立，后续替换版本化 RNG backend 时不需要重做页面。
+- 已验证的游戏 API 用法、线程边界与 RNG 细节记录在 [docs/sts2-api-notes.md](docs/sts2-api-notes.md)；踩坑清单沉淀在 `sts2-mod` 技能的 `references/pitfalls.md`。
+- 界面翻译直接读取游戏官方资源包中的本地化表，说明见 [docs/localization.md](docs/localization.md)。
 
 ## 使用
 

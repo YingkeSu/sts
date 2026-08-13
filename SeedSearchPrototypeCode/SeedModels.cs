@@ -76,7 +76,14 @@ public sealed record SeedSnapshot(
     string EventIds = "",
     RunCharacter Character = RunCharacter.Any,
     string DetailSpec = "",
-    int Ascension = 0);
+    int Ascension = 0,
+    MapLayout? Map = null);
+
+public sealed record MapNode(int Col, int Row, string Kind);
+
+public sealed record MapEdge(int From, int To);
+
+public sealed record MapLayout(List<MapNode> Nodes, List<MapEdge> Edges);
 
 public sealed record SeedMatch(string Seed, SeedSnapshot Snapshot);
 

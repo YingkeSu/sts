@@ -574,9 +574,9 @@ public static class SearchTheSpirePicker
         }
 
         return options
-            .Where(option => option.Title.Contains(needle, StringComparison.OrdinalIgnoreCase) ||
+            .Where(option => Localization.OptionTitle(option).Contains(needle, StringComparison.OrdinalIgnoreCase) ||
                             option.Id.Contains(needle, StringComparison.OrdinalIgnoreCase) ||
-                            option.Section.Contains(needle, StringComparison.OrdinalIgnoreCase))
+                            Localization.OptionSection(option).Contains(needle, StringComparison.OrdinalIgnoreCase))
             .ToArray();
     }
 
@@ -594,6 +594,8 @@ public static class SearchTheSpirePicker
 
 public static class SearchTheSpireCatalog
 {
+    public static readonly int[] AscensionValues = { 0, 5, 10, 15, 20 };
+
     private static readonly IReadOnlyDictionary<string, string> DisplayNames =
         new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
@@ -1581,14 +1583,12 @@ public static class SearchTheSpireCatalog
 
     public static string DisplayName(string id)
     {
-        if (DisplayNames.TryGetValue(id, out var name))
-        {
-            return name;
-        }
-
-        return string.Join(' ', id.Split('_', StringSplitOptions.RemoveEmptyEntries)
-            .Select(part => part.Length == 0 ? part : char.ToUpperInvariant(part[0]) + part[1..]))
-            .Replace("dollroom", "Doll Room", StringComparison.OrdinalIgnoreCase);
+        var english = DisplayNames.TryGetValue(id, out var name)
+            ? name
+            : string.Join(' ', id.Split('_', StringSplitOptions.RemoveEmptyEntries)
+                .Select(part => part.Length == 0 ? part : char.ToUpperInvariant(part[0]) + part[1..]))
+                .Replace("dollroom", "Doll Room", StringComparison.OrdinalIgnoreCase);
+        return Localization.Game(id, english);
     }
 
     private static string Humanize(string id) => DisplayName(id);
