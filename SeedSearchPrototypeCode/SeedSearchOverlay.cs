@@ -20,9 +20,11 @@ public partial class SeedSearchOverlay : CanvasLayer
     private static readonly Color Accent = new("d9a441");
     private static readonly Color AccentDark = new("5e461f");
     private static readonly Color Danger = new("c56d65");
-    private const int CustomCandidateOption = 3;
-    private const long DefaultMaxCandidates = 10_000_000L;
-    private static readonly long[] CandidatePresets = { 10_000_000L, 100_000_000L, 200_000_000L };
+    private const int CustomCandidateOption = 1;
+    private const long CustomDefaultCandidates = 10_000_000L;
+    private static readonly long[] CandidatePresets =
+        { SeedSearchEngine.SeedCount(SeedBranch.PublicBeta) };
+    private static readonly long DefaultMaxCandidates = CandidatePresets[0];
 
     private readonly SeedSearchEngine _engine = new();
     private readonly List<SavedSearch> _savedSearches = new();
@@ -473,7 +475,7 @@ public partial class SeedSearchOverlay : CanvasLayer
         controls.AddThemeConstantOverride("v_separation", 8);
         content.AddChild(controls);
         _stopAfterInput = MakeOption(new[] { "5 matches", "10 matches", "20 matches", "50 matches" }, 2, 210);
-        _maxCandidatesInput = MakeOption(new[] { "10M candidates", "100M candidates", "200M candidates", "custom" }, 0, 210);
+        _maxCandidatesInput = MakeOption(new[] { "2.4 quintillion (all seeds)", "custom" }, 0, 210);
         _advancedInput = new LineEdit
         {
             Text = "0",
@@ -500,7 +502,7 @@ public partial class SeedSearchOverlay : CanvasLayer
         _maxCandidatesCustomInput = new LineEdit
         {
             PlaceholderText = Localization.T("e.g. 30000000 or 30M"),
-            Text = DefaultMaxCandidates.ToString(CultureInfo.InvariantCulture),
+            Text = CustomDefaultCandidates.ToString(CultureInfo.InvariantCulture),
             CustomMinimumSize = new Vector2(210, 36)
         };
         _customCandidatesRow.AddChild(_maxCandidatesCustomInput);
@@ -1250,7 +1252,7 @@ public partial class SeedSearchOverlay : CanvasLayer
         ClearChildren(_resultsList);
         _stopAfterInput.Selected = 2;
         _maxCandidatesInput.Selected = 0;
-        _maxCandidatesCustomInput.Text = DefaultMaxCandidates.ToString(CultureInfo.InvariantCulture);
+        _maxCandidatesCustomInput.Text = CustomDefaultCandidates.ToString(CultureInfo.InvariantCulture);
         UpdateCustomCandidatesVisibility();
         _randomStartInput.ButtonPressed = true;
         _advancedInput.Text = "0";

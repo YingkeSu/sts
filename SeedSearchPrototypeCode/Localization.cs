@@ -106,6 +106,7 @@ public static class Localization
             ["10M candidates"] = "1000 万候选",
             ["100M candidates"] = "1 亿候选",
             ["200M candidates"] = "2 亿候选",
+            ["2.4 quintillion (all seeds)"] = "2.4 quintillion（全部种子）",
             ["custom"] = "自定义",
             ["custom runs"] = "自定义候选数",
             ["e.g. 30000000 or 30M"] = "例如 30000000 或 30M",
