@@ -74,7 +74,7 @@ public static class GameSeedRuntimeBackend
         }
     }
 
-    private static CharacterModel PickCharacter(RunCharacter character)
+    public static CharacterModel PickCharacter(RunCharacter character)
     {
         var wanted = character.ToString().ToLowerInvariant();
         return ModelDb.AllCharacters.FirstOrDefault(model =>

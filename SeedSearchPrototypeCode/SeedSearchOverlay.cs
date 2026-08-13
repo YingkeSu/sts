@@ -1,7 +1,11 @@
 using System.Globalization;
 using System.Text.Json;
 using Godot;
+using MegaCrit.Sts2.Core.Helpers;
+using MegaCrit.Sts2.Core.Models;
+using MegaCrit.Sts2.Core.Nodes;
 using MegaCrit.Sts2.Core.Platform;
+using MegaCrit.Sts2.Core.Runs;
 
 namespace SeedSearchPrototype;
 
@@ -753,10 +757,9 @@ public partial class SeedSearchOverlay : CanvasLayer
         row.AddChild(margin);
         wrapper.AddChild(row);
 
-        var seedButton = MakeButton(match.Seed, "Copy seed", 132);
-        seedButton.Pressed += () => CopyToClipboard(match.Seed);
+        var seedLabel = MakeCell(match.Seed, 132, Text);
         Control? detail = null;
-        var detailButton = MakeButton("details", "Expand this seed's preview", 132);
+        var detailButton = MakeButton("details", "Expand this seed's preview", 86);
         detailButton.Pressed += () =>
         {
             if (detail == null)
@@ -770,8 +773,17 @@ public partial class SeedSearchOverlay : CanvasLayer
         };
         var seedColumn = new VBoxContainer();
         seedColumn.AddThemeConstantOverride("separation", 4);
-        seedColumn.CustomMinimumSize = new Vector2(132, 0);
-        seedColumn.AddChild(seedButton);
+        seedColumn.CustomMinimumSize = new Vector2(186, 0);
+        seedColumn.AddChild(seedLabel);
+        var seedActions = new HBoxContainer();
+        seedActions.AddThemeConstantOverride("separation", 6);
+        var copyButton = MakeButton("copy seed", "Copy this seed", 86);
+        copyButton.Pressed += () => CopyToClipboard(match.Seed);
+        seedActions.AddChild(copyButton);
+        var startButton = MakeButton("start run", "Start this seed in custom mode", 92);
+        startButton.Pressed += () => StartRunWithSeed(match.Seed);
+        seedActions.AddChild(startButton);
+        seedColumn.AddChild(seedActions);
         seedColumn.AddChild(detailButton);
         content.AddChild(seedColumn);
         content.AddChild(MakeCell(match.Snapshot.Act1Map, 270, Text));
@@ -1161,6 +1173,48 @@ public partial class SeedSearchOverlay : CanvasLayer
             : SeedSearchEngine.CreateSeed(ReadBranch(), DateTime.UtcNow.Ticks);
         CopyToClipboard(seed);
         SetStatus(Localization.F("copied {0}", seed), Accent);
+    }
+
+    private void StartRunWithSeed(string seed)
+    {
+        if (RunManager.Instance.IsInProgress)
+        {
+            SetStatus("already in a run", Danger);
+            return;
+        }
+
+        try
+        {
+            var query = ReadQuery();
+            var character = query.Character == RunCharacter.Any
+                ? RunCharacter.Ironclad
+                : query.Character;
+            var acts = ActModel.GetDefaultList().Select(act => act.ToMutable()).ToList();
+            // Custom mode with the default option set: no modifiers selected.
+            var modifiers = Array.Empty<ModifierModel>();
+            var game = NGame.Instance;
+            if (game == null)
+            {
+                SetStatus("could not start the run", Danger);
+                return;
+            }
+
+            _backdrop.Visible = false;
+            TaskHelper.RunSafely(game.StartNewSingleplayerRun(
+                GameSeedRuntimeBackend.PickCharacter(character),
+                shouldSave: true,
+                acts,
+                modifiers,
+                seed,
+                GameMode.Custom,
+                query.Ascension));
+            SetStatus(Localization.F("starting {0}", seed), Accent);
+        }
+        catch (Exception exception)
+        {
+            MainFile.Logger.Error($"Could not start run with seed {seed}: {exception}");
+            SetStatus("could not start the run", Danger);
+        }
     }
 
     private void ClearBoard()
