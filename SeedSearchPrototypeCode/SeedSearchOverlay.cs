@@ -1189,7 +1189,10 @@ public partial class SeedSearchOverlay : CanvasLayer
             var character = query.Character == RunCharacter.Any
                 ? RunCharacter.Ironclad
                 : query.Character;
-            var acts = ActModel.GetDefaultList().Select(act => act.ToMutable()).ToList();
+            // StartNewSingleplayerRun converts canonical acts via ToMutable
+            // internally; passing already-mutable acts throws
+            // MutableModelException (game log, v0.110.1).
+            var acts = ActModel.GetDefaultList();
             // Custom mode with the default option set: no modifiers selected.
             var modifiers = Array.Empty<ModifierModel>();
             var game = NGame.Instance;

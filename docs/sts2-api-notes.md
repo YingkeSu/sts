@@ -96,6 +96,17 @@
    `MapPoint.coord` 的 `col/row` 直接用于渲染。
 
 参考实现：[`GameSeedRuntime.cs`](../SeedSearchPrototypeCode/GameSeedRuntime.cs)
+
+### 以种子开始新局（自定义模式）
+
+- `NGame.Instance.StartNewSingleplayerRun(character, shouldSave, acts,
+  modifiers, seed, GameMode.Custom, ascension)` 会**在内部**对 `acts` 再执行
+  一次 `ToMutable()`；调用方必须传规范 act（`ActModel.GetDefaultList()`），
+  不能像 `RunState.CreateForNewRun` 那样先传可移动 act。传已可移动 act 会抛
+  `MutableModelException`（v0.110.1 实际游戏日志确认）。
+- 自定义模式“什么都不带”传 `Array.Empty<ModifierModel>()` 与
+  `GameMode.Custom` 即可；游戏自己的 `NCustomRunScreen` 也走同一入口。
+
 `StandardActMap`、`MapPathPruning`、`MapPostProcessing`、地图 UI 图标加载等
 类型的 v0.110.1 反编译快照见
 [`docs/sts2-decompile/v0.110.1/`](./sts2-decompile/v0.110.1/README.md)，
