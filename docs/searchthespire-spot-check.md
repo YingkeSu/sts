@@ -50,6 +50,8 @@ SearchTheSpire 首页明确将自己标为 unofficial fan-made tool；目前没�
 - Kaleidoscope、Neow's Bones 胶囊拉取和 Scroll Boxes 共享池约束：不允许重复；Scroll Boxes 只允许 common/uncommon，并限制为 2 common + 1 uncommon。
 - Kaleidoscope 六牌面按 SearchTheSpire wasm 的 `inspect_seed` 对照：`niche` 流 `StableShuffle` 其它角色池取前 3，`rewards` 流按 RegularEncounter 稀有度、选牌和升级各抽一次；`kaleido_distinct` 匹配六张牌面中的任意两张。
 - beta 种子 codec 与 wasm 的 `display_for_index` 对齐（最高位在前），批量搜索的候选范围与偏移量因此和 SearchTheSpire 一致。
+- 搜索从候选索引 0 开始，低索引的 beta 种子会显示成前几位有内容、右侧补 `0` 的形式（例如 `PT0000000000`）。这是 SearchTheSpire
+  候选枚举的既定显示，不是生成错误；改动 codec 会破坏候选范围与站点偏移量的对齐。
 - Neow 扩展项继续按同一 reward roll 分组，fresh-reward rares、ancient 条件 offer、event map lock、reward/shop/bag/event package floor 均保留依赖门槛。
 - Popular 页提供本地保存搜索的频次排名；Saved/Popular 的 Open 会从 `HiddenSpec` 恢复完整 board，而不是只恢复结果列表。
 

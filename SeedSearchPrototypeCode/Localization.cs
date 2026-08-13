@@ -137,7 +137,7 @@ public static class Localization
             ["save this search"] = "保存此搜索",
             ["Save this search in the mod"] = "在本 Mod 中保存此搜索",
             ["copy random seed"] = "复制随机种子",
-            ["Copy a seed from the current branch"] = "从当前分支复制一个种子",
+            ["Copy a random seed from the current results"] = "从当前结果中复制一个随机种子",
             ["Popular this week"] = "本周热门",
             ["popular searches are ranked from searches saved in this game session and can be reopened directly."] =
                 "热门搜索按本局游戏会话中保存的搜索排名，可直接重新打开。",

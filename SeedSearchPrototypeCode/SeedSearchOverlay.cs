@@ -579,7 +579,7 @@ public partial class SeedSearchOverlay : CanvasLayer
         var saveButton = MakeButton("save this search", "Save this search in the mod", 138);
         saveButton.Pressed += SaveSearch;
         actions.AddChild(saveButton);
-        var randomButton = MakeButton("copy random seed", "Copy a seed from the current branch", 144);
+        var randomButton = MakeButton("copy random seed", "Copy a random seed from the current results", 144);
         randomButton.Pressed += CopyRandomSeed;
         actions.AddChild(randomButton);
 
@@ -1153,7 +1153,12 @@ public partial class SeedSearchOverlay : CanvasLayer
 
     private void CopyRandomSeed()
     {
-        var seed = SeedSearchEngine.CreateSeed(ReadBranch(), DateTime.UtcNow.Ticks);
+        // The board-level button lives next to the results, so it should copy
+        // one of the filtered seeds when a search has produced results. Only
+        // fall back to a random candidate index before the first search.
+        var seed = _lastResults.Count > 0
+            ? _lastResults[Random.Shared.Next(_lastResults.Count)].Seed
+            : SeedSearchEngine.CreateSeed(ReadBranch(), DateTime.UtcNow.Ticks);
         CopyToClipboard(seed);
         SetStatus(Localization.F("copied {0}", seed), Accent);
     }
