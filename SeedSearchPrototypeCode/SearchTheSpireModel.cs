@@ -628,6 +628,7 @@ public static class SearchTheSpireCatalog
             ["kaleidoscope"] = "Kaleidoscope",
             ["leadpaperweight"] = "Lead Paperweight",
             ["lostcoffer"] = "Lost Coffer",
+            ["massivescroll"] = "Massive Scroll",
             ["newleaf"] = "New Leaf",
             ["phialholster"] = "Phial Holster",
             ["precisescissors"] = "Precise Scissors",
@@ -761,6 +762,7 @@ public static class SearchTheSpireCatalog
         new("kaleidoscope", "Kaleidoscope", "bonus offer"),
         new("leadpaperweight", "Lead Paperweight", "bonus offer"),
         new("lostcoffer", "Lost Coffer", "bonus offer"),
+        new("massivescroll", "Massive Scroll", "bonus offer"),
         new("neowstorment", "Neow's Torment", "bonus offer"),
         new("newleaf", "New Leaf", "bonus offer"),
         new("phialholster", "Phial Holster", "bonus offer"),
@@ -776,7 +778,7 @@ public static class SearchTheSpireCatalog
     };
 
     private static readonly SearchTheSpireOption[] GrantRelics =
-        CursedOffers.Concat(new[] { "arcanescroll", "boomingconch", "fishingrod", "goldenpearl", "kaleidoscope", "leadpaperweight", "lostcoffer", "neowstorment", "newleaf", "phialholster", "precisescissors", "scrollboxes", "wingedboots", "lavarock", "neowstalisman", "nutritiousoyster", "pomander", "smallcapsule", "stonehumidifier" })
+        CursedOffers.Concat(new[] { "arcanescroll", "boomingconch", "fishingrod", "goldenpearl", "kaleidoscope", "leadpaperweight", "lostcoffer", "massivescroll", "neowstorment", "newleaf", "phialholster", "precisescissors", "scrollboxes", "wingedboots", "lavarock", "neowstalisman", "nutritiousoyster", "pomander", "smallcapsule", "stonehumidifier" })
             .Where(id => id != "neowsbones")
             .Distinct(StringComparer.Ordinal)
             .Select(id => new SearchTheSpireOption(id, Humanize(id), "relic grants"))

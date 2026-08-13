@@ -27,9 +27,9 @@ public sealed class SeedSearchEngine
     private static readonly string[] BonusOffers =
     {
         "arcanescroll", "boomingconch", "fishingrod", "goldenpearl", "kaleidoscope",
-        "leadpaperweight", "lostcoffer", "neowstorment", "newleaf", "phialholster",
-        "precisescissors", "scrollboxes", "wingedboots", "lavarock", "smallcapsule",
-        "nutritiousoyster", "stonehumidifier", "neowstalisman", "pomander",
+        "leadpaperweight", "lostcoffer", "massivescroll", "neowstorment", "newleaf",
+        "phialholster", "precisescissors", "scrollboxes", "wingedboots", "lavarock",
+        "smallcapsule", "nutritiousoyster", "stonehumidifier", "neowstalisman", "pomander",
     };
 
     private static readonly string[] OvergrowthBosses = { "ceremonialbeast", "thekin", "vantom" };
@@ -170,9 +170,9 @@ public sealed class SeedSearchEngine
         "cursedpearl", "dowsingrod", "heftytablet", "largecapsule", "leafypoultice",
         "neowssacrifice", "precariousshears", "silkentress", "silvercrucible",
         "arcanescroll", "boomingconch", "fishingrod", "goldenpearl", "kaleidoscope",
-        "leadpaperweight", "lostcoffer", "neowstorment", "newleaf", "phialholster",
-        "precisescissors", "scrollboxes", "wingedboots", "lavarock", "neowstalisman",
-        "nutritiousoyster", "pomander", "smallcapsule", "stonehumidifier",
+        "leadpaperweight", "lostcoffer", "massivescroll", "neowstorment", "newleaf",
+        "phialholster", "precisescissors", "scrollboxes", "wingedboots", "lavarock",
+        "neowstalisman", "nutritiousoyster", "pomander", "smallcapsule", "stonehumidifier",
     };
 
     public static string CreateSeed(SeedBranch branch, long index) => SeedCodec.FromIndex(branch, index);
@@ -380,6 +380,10 @@ public sealed class SeedSearchEngine
         var ancient3OfferId = ancient3OfferPool[Sts2ReferenceRng.NextInt(ref layoutRng, ancient3OfferPool.Count)];
 
         var neowRng = Sts2ReferenceRng.Create(baseSeed + StreamHash(branch, "NEOW"));
+        var rewardsRng = Sts2ReferenceRng.Create(baseSeed + StreamHash(branch, "rewards"));
+        var nicheRng = Sts2ReferenceRng.Create(baseSeed + StreamHash(branch, "niche"));
+        var transformationsRng = Sts2ReferenceRng.Create(baseSeed + StreamHash(branch, "transformations"));
+        var combatPotionRng = Sts2ReferenceRng.Create(baseSeed + StreamHash(branch, "combat_potion_generation"));
         var cursedOffer = CursedOffers[Sts2ReferenceRng.NextInt(ref neowRng, CursedOffers.Length)];
         var bonusPool = BuildNeowBonusPool(cursedOffer, ref neowRng);
         var bonusA = bonusPool[0];
@@ -396,8 +400,7 @@ public sealed class SeedSearchEngine
         if (offer == "neowsbones")
         {
             var grantPool = GrantRelics.ToList();
-            var rewardRng = Sts2ReferenceRng.Create(baseSeed + StreamHash(branch, "rewards"));
-            Sts2ReferenceRng.Shuffle(ref rewardRng, grantPool);
+            Sts2ReferenceRng.Shuffle(ref rewardsRng, grantPool);
             grantA = grantPool[0];
             grantB = grantPool[1];
         }
@@ -442,7 +445,12 @@ public sealed class SeedSearchEngine
             cardDetailPools,
             potionPool,
             capsuleRelicPool,
-            ref neowRng,
+            ref rewardsRng,
+            ref nicheRng,
+            ref transformationsRng,
+            ref combatPotionRng,
+            character,
+            ascension,
             kaleidoDistinct);
 
         return new SeedSnapshot(
@@ -584,10 +592,11 @@ public sealed class SeedSearchEngine
         string cursedOffer,
         ref Sts2ReferenceRng.RngState rng)
     {
-        // The first 13 entries are Neow's always-available positive options.
-        // The remaining six entries are the three mutually exclusive pairs
-        // added by Neow.GenerateInitialOptions.
-        var pool = BonusOffers.Take(13).ToList();
+        // The first 14 entries are Neow's always-available positive options
+        // (v0.110.1 adds Massive Scroll between Lost Coffer and Neow's
+        // Torment). The remaining six entries are the three mutually
+        // exclusive pairs added by Neow.GenerateInitialOptions.
+        var pool = BonusOffers.Take(14).ToList();
         if (cursedOffer == "cursedpearl")
         {
             pool.Remove("goldenpearl");
@@ -704,6 +713,15 @@ public sealed class SeedSearchEngine
     {
         var nicheRng = Sts2ReferenceRng.Create(baseSeed + StreamHash(branch, "niche"));
         var rewardsRng = Sts2ReferenceRng.Create(baseSeed + StreamHash(branch, "rewards"));
+        return SimulateKaleidoCards(ref nicheRng, ref rewardsRng, character, ascension);
+    }
+
+    private static string SimulateKaleidoCards(
+        ref Sts2ReferenceRng.RngState nicheRng,
+        ref Sts2ReferenceRng.RngState rewardsRng,
+        RunCharacter character,
+        int ascension)
+    {
         var pools = SearchTheSpirePoolData.CardPools.Keys
             .Where(key => key != character)
             .OrderBy(key => key.ToString())
@@ -788,7 +806,12 @@ public sealed class SeedSearchEngine
         CardDetailPools cardPools,
         IReadOnlyList<string> potions,
         IReadOnlyList<string> relics,
-        ref Sts2ReferenceRng.RngState neowRng,
+        ref Sts2ReferenceRng.RngState rewardsRng,
+        ref Sts2ReferenceRng.RngState nicheRng,
+        ref Sts2ReferenceRng.RngState transformationsRng,
+        ref Sts2ReferenceRng.RngState combatPotionRng,
+        RunCharacter character,
+        int ascension,
         string? kaleidoDistinct = null)
     {
         var details = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
@@ -804,22 +827,48 @@ public sealed class SeedSearchEngine
 
         if (offer == "neowsbones")
         {
-            details["bones_curse"] = TakeValue(Curses, ref neowRng);
-            AddOfferDetails(details, grantA, "bones_", cardPools, potions, relics, ref neowRng);
-            AddOfferDetails(details, grantB, "bones_", cardPools, potions, relics, ref neowRng);
-            var capsulePulls = CapsulePulls(grantA) + CapsulePulls(grantB);
-            if (capsulePulls > 0)
-            {
-                details["bones_capsule_set"] = TakeDistinct(relics, capsulePulls, ref neowRng);
-            }
+            AddOfferDetails(
+                details, grantA, "bones_", cardPools, potions, relics,
+                ref rewardsRng, ref nicheRng, ref transformationsRng, ref combatPotionRng,
+                character, ascension);
+            AddBonesCapsulePulls(details, grantA, relics, ref rewardsRng);
+            AddOfferDetails(
+                details, grantB, "bones_", cardPools, potions, relics,
+                ref rewardsRng, ref nicheRng, ref transformationsRng, ref combatPotionRng,
+                character, ascension);
+            AddBonesCapsulePulls(details, grantB, relics, ref rewardsRng);
+            // The curse is rolled after both grants' pickup effects, in the
+            // order NeowsBones.AfterObtained consumes the Niche stream.
+            details["bones_curse"] = TakeValue(Curses, ref nicheRng);
         }
         else
         {
-            AddOfferDetails(details, offer, string.Empty, cardPools, potions, relics, ref neowRng);
+            AddOfferDetails(
+                details, offer, string.Empty, cardPools, potions, relics,
+                ref rewardsRng, ref nicheRng, ref transformationsRng, ref combatPotionRng,
+                character, ascension);
         }
 
         return string.Join(',', details.OrderBy(pair => pair.Key, StringComparer.Ordinal)
             .Select(pair => $"{pair.Key}={pair.Value}"));
+    }
+
+    private static void AddBonesCapsulePulls(
+        IDictionary<string, string> details,
+        string offer,
+        IReadOnlyList<string> relics,
+        ref Sts2ReferenceRng.RngState rewardsRng)
+    {
+        var pulls = CapsulePulls(offer);
+        if (pulls == 0)
+        {
+            return;
+        }
+
+        var pulled = TakeDistinct(relics, pulls, ref rewardsRng);
+        details["bones_capsule_set"] = details.TryGetValue("bones_capsule_set", out var existing)
+            ? existing + "+" + pulled
+            : pulled;
     }
 
     private static void AddOfferDetails(
@@ -829,7 +878,12 @@ public sealed class SeedSearchEngine
         CardDetailPools cardPools,
         IReadOnlyList<string> potions,
         IReadOnlyList<string> relics,
-        ref Sts2ReferenceRng.RngState rng)
+        ref Sts2ReferenceRng.RngState rewardsRng,
+        ref Sts2ReferenceRng.RngState nicheRng,
+        ref Sts2ReferenceRng.RngState transformationsRng,
+        ref Sts2ReferenceRng.RngState combatPotionRng,
+        RunCharacter character,
+        int ascension)
     {
         if (string.IsNullOrWhiteSpace(offer))
         {
@@ -839,17 +893,17 @@ public sealed class SeedSearchEngine
         switch (offer)
         {
             case "heftytablet":
-                details[$"{prefix}tablet_card"] = TakeValue(cardPools.Rare, ref rng);
+                details[$"{prefix}tablet_card"] = TakeValue(cardPools.Rare, ref rewardsRng);
                 break;
             case "arcanescroll":
-                details[$"{prefix}arcane_card"] = TakeValue(cardPools.Rare, ref rng);
+                details[$"{prefix}arcane_card"] = TakeValue(cardPools.Rare, ref rewardsRng);
                 break;
             case "leadpaperweight":
-                details[$"{prefix}paperweight_card"] = TakeValue(cardPools.Rollable, ref rng);
+                details[$"{prefix}paperweight_card"] = TakeValue(cardPools.Rollable, ref rewardsRng);
                 break;
             case "lostcoffer":
-                details[$"{prefix}coffer_card"] = TakeValue(cardPools.Rollable, ref rng);
-                details[$"{prefix}coffer_potion"] = TakeValue(potions, ref rng);
+                details[$"{prefix}coffer_card"] = TakeValue(cardPools.Rollable, ref rewardsRng);
+                details[$"{prefix}coffer_potion"] = TakeValue(potions, ref rewardsRng);
                 break;
             case "largecapsule":
                 if (prefix == "bones_")
@@ -858,7 +912,7 @@ public sealed class SeedSearchEngine
                 }
 
                 details[prefix.Length == 0 ? "large_relic" : "bones_capsule_set"] =
-                    TakeDistinct(relics, prefix.Length == 0 ? 2 : 3, ref rng);
+                    TakeDistinct(relics, prefix.Length == 0 ? 2 : 3, ref rewardsRng);
                 break;
             case "smallcapsule":
                 if (prefix == "bones_")
@@ -867,22 +921,23 @@ public sealed class SeedSearchEngine
                 }
 
                 details[prefix.Length == 0 ? "capsule_relic" : "bones_capsule_set"] =
-                    TakeDistinct(relics, prefix.Length == 0 ? 1 : 3, ref rng);
+                    TakeDistinct(relics, prefix.Length == 0 ? 1 : 3, ref rewardsRng);
                 break;
             case "kaleidoscope":
-                details[$"{prefix}kaleido_distinct"] = TakeDistinct(cardPools.OtherCharacters, 2, ref rng);
+                details[$"{prefix}kaleido_distinct"] =
+                    SimulateKaleidoCards(ref nicheRng, ref rewardsRng, character, ascension);
                 break;
             case "newleaf":
-                details[$"{prefix}newleaf_card"] = TakeValue(cardPools.Rollable, ref rng);
+                details[$"{prefix}newleaf_card"] = TakeValue(cardPools.Rollable, ref nicheRng);
                 break;
             case "scrollboxes":
-                details[$"{prefix}scrollbox_contains"] = TakeDistinct(cardPools.CommonUncommon, 3, ref rng);
+                details[$"{prefix}scrollbox_contains"] = TakeDistinct(cardPools.CommonUncommon, 3, ref rewardsRng);
                 break;
             case "leafypoultice":
-                details[$"{prefix}poultice_set"] = TakeDistinct(cardPools.Rollable, 2, ref rng);
+                details[$"{prefix}poultice_set"] = TakeDistinct(cardPools.Rollable, 2, ref transformationsRng);
                 break;
             case "phialholster":
-                details[$"{prefix}phial_potion"] = TakeDistinct(potions, 2, ref rng);
+                details[$"{prefix}phial_potion"] = TakeDistinct(potions, 2, ref combatPotionRng);
                 break;
         }
     }

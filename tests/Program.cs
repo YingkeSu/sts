@@ -156,10 +156,14 @@ Console.WriteLine($"Version pin consistency checks passed ({SeedSearchEngine.Pin
 
 var betaNeowChecks = new Dictionary<string, (string Cursed, string BonusA, string BonusB, string? GrantA, string? GrantB)>
 {
-    ["000000000000"] = ("largecapsule", "newleaf", "phialholster", null, null),
-    ["000000000001"] = ("dowsingrod", "arcanescroll", "kaleidoscope", null, null),
-    ["000000000002"] = ("neowssacrifice", "boomingconch", "newleaf", null, null),
-    ["000000000003"] = ("neowsbones", "pomander", "leadpaperweight", "lavarock", "nutritiousoyster"),
+    // Values are derived from the installed v0.110.1 Neow.GenerateInitialOptions:
+    // the positive pool has 14 entries (Massive Scroll included), the Bones
+    // grants shuffle the same 29-relic pool via the rewards stream, and the
+    // Bones curse is the first Niche draw.
+    ["000000000000"] = ("largecapsule", "pomander", "scrollboxes", null, null),
+    ["000000000001"] = ("dowsingrod", "arcanescroll", "neowstorment", null, null),
+    ["000000000002"] = ("neowssacrifice", "goldenpearl", "newleaf", null, null),
+    ["000000000003"] = ("neowsbones", "goldenpearl", "newleaf", "leadpaperweight", "phialholster"),
 };
 foreach (var (seed, expected) in betaNeowChecks)
 {
@@ -174,6 +178,22 @@ foreach (var (seed, expected) in betaNeowChecks)
     {
         throw new InvalidOperationException($"Public-beta Neow preview diverged for {seed}: {snapshot.NeowOffers} / {snapshot.NeowGrantAId}+{snapshot.NeowGrantBId}");
     }
+}
+
+var bonesCurseId = engine.Inspect("000000000003", SeedBranch.PublicBeta).DetailSpec
+    .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+    .FirstOrDefault(fragment => fragment.StartsWith("bones_curse=", StringComparison.Ordinal))?
+    .Split('=', 2)[1];
+if (bonesCurseId != "decay")
+{
+    throw new InvalidOperationException(
+        $"Neow's Bones curse must come from the Niche stream (v0.110.1 AfterObtained), got bones_curse={bonesCurseId ?? "<missing>"}.");
+}
+
+var neowOfferOptions = SearchTheSpireBoardState.Empty.OptionsFor("neowOffer");
+if (!neowOfferOptions.Any(option => option.Id == "massivescroll" && option.Section == "bonus offer"))
+{
+    throw new InvalidOperationException("The Neow picker is missing v0.110.1's Massive Scroll bonus offer.");
 }
 Console.WriteLine("SearchTheSpire public-beta Neow parity checks passed.");
 
