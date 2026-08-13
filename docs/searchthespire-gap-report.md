@@ -8,7 +8,7 @@
 | SearchTheSpire 元素 | 当前 Mod | 状态与差距 |
 | --- | --- | --- |
 | 游戏外/页面入口 | 主菜单右下角“种子搜索” | 已有。隐藏时 shell 忽略鼠标，只有按钮接收输入。 |
-| Board / Popular / Saved | 同名三页（中文为“面板/热门/已保存”） | 已有；切页不丢失当前查询和结果。 |
+| Board / Saved | 同名两页（中文为“面板/已保存”；冗余的 Popular 已移除） | 已有；切页不丢失当前查询和结果。 |
 | 版本/分支选择 | `public beta · v0.110.1` | 已有；当前只暴露已验证分支。 |
 | Character art grid | 6 个角色按钮，顺序 Any、Ironclad、Silent、Regent、Necrobinder、Defect；再次点击清空 | 行为一致；当前使用文字按钮，未接入角色美术资源。 |
 | Ascension | `none`、A1–A10 | 已有；不再暴露不存在的 A11–A20/A20。 |
@@ -23,7 +23,7 @@
 | Picker blocked option | 不可用项禁用并保留原因 | 已有。 |
 | Result table | seed、map、Neow、ancients、bosses；行首 copy/details | 已有；详情位于行首，避免宽表裁掉动作。 |
 | Spoilers | 默认隐藏，按钮切换 | 已有。 |
-| Save / Popular / Saved restore | 保存、热门统计、打开后恢复 board 与结果 | 已有；恢复时从 HiddenSpec 重建父子控件。 |
+| Save / Saved restore | 保存、打开后恢复 board 与结果 | 已有；恢复时从 HiddenSpec 重建父子控件。 |
 | Share / Clear | 复制稳定查询规格；清空模型和所有可见控件 | 已有。 |
 | Search / Cancel / progress | 后台本地扫描、进度、取消 | 已有。 |
 | Inspect | 单种子预览，运行时可用时显示 game-runtime，否则 reference-RNG | 已有；批量 reference 地图已移植 `StandardActMap` 并与运行时夹具逐字段对齐，单种子仍可切到 game-runtime 复核。 |

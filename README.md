@@ -4,7 +4,7 @@
 
 这是一个《杀戮尖塔 2》游戏内种子搜索 Mod，界面按 SearchTheSpire 的工作流组织：
 
-- Board / Popular / Saved 标签页；
+- Board / Saved 标签页（Popular 冗余模块已移除）；
 - 当前 public beta 分支选择；
 - Neow、Act 1 精英、商店、休息点筛选；
 - 进阶覆盖 A0-A10（SearchTheSpire board 的 `none` + A1..A10），模型、UI 与恢复路径统一以 A10 为上限；

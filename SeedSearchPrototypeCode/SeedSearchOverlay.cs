@@ -36,10 +36,8 @@ public partial class SeedSearchOverlay : CanvasLayer
     private Control _backdrop = null!;
     private VBoxContainer _pageContent = null!;
     private Control _boardPage = null!;
-    private Control _popularPage = null!;
     private Control _savedPage = null!;
     private VBoxContainer _resultsList = null!;
-    private VBoxContainer _popularList = null!;
     private VBoxContainer _savedList = null!;
     private Label _statusLabel = null!;
     private Label _progressLabel = null!;
@@ -75,7 +73,6 @@ public partial class SeedSearchOverlay : CanvasLayer
     private Button _languageButton = null!;
     private Button _closeButton = null!;
     private Button _boardTabButton = null!;
-    private Button _popularTabButton = null!;
     private Button _savedTabButton = null!;
     private SearchTheSpirePickerDialog _pickerDialog = null!;
     private SearchTheSpireBoardState _boardState = SearchTheSpireBoardState.Empty;
@@ -249,20 +246,15 @@ public partial class SeedSearchOverlay : CanvasLayer
         tabs.AddThemeConstantOverride("separation", 8);
         _pageContent.AddChild(tabs);
         _boardTabButton = MakeButton("Board", "Show search board", 100);
-        _popularTabButton = MakeButton("Popular", "Show popular searches", 100);
         _savedTabButton = MakeButton("Saved", "Show saved searches", 100);
         _boardTabButton.Pressed += ShowBoard;
-        _popularTabButton.Pressed += ShowPopular;
         _savedTabButton.Pressed += ShowSaved;
         tabs.AddChild(_boardTabButton);
-        tabs.AddChild(_popularTabButton);
         tabs.AddChild(_savedTabButton);
 
         _boardPage = BuildBoardPage();
-        _popularPage = BuildPopularPage();
         _savedPage = BuildSavedPage();
         _pageContent.AddChild(_boardPage);
-        _pageContent.AddChild(_popularPage);
         _pageContent.AddChild(_savedPage);
 
         // The picker is a sibling of the page/backdrop, so it can temporarily
@@ -287,7 +279,6 @@ public partial class SeedSearchOverlay : CanvasLayer
         var spoilers = _showSpoilers;
         var inspectInput = _inspectInput.Text;
         var wasBoard = _boardPage.Visible;
-        var wasPopular = _popularPage.Visible;
         var lastQuery = _lastQuery;
         var lastResults = _lastResults;
 
@@ -298,17 +289,15 @@ public partial class SeedSearchOverlay : CanvasLayer
         _pickerDialog.QueueFree();
 
         // Keep the emitting button and header alive; only rebuild the page contents.
-        foreach (var oldPage in new[] { _boardPage, _popularPage, _savedPage })
+        foreach (var oldPage in new[] { _boardPage, _savedPage })
         {
             _pageContent.RemoveChild(oldPage);
             oldPage.QueueFree();
         }
 
         _boardPage = BuildBoardPage();
-        _popularPage = BuildPopularPage();
         _savedPage = BuildSavedPage();
         _pageContent.AddChild(_boardPage);
-        _pageContent.AddChild(_popularPage);
         _pageContent.AddChild(_savedPage);
 
         _pickerDialog = new SearchTheSpirePickerDialog { Name = "SearchTheSpirePicker" };
@@ -330,14 +319,9 @@ public partial class SeedSearchOverlay : CanvasLayer
         RefreshAdvancedDetails();
         RefreshCharacterPreview();
         RebuildSavedList();
-        RebuildPopularList();
         if (wasBoard)
         {
             ShowBoard();
-        }
-        else if (wasPopular)
-        {
-            ShowPopular();
         }
         else
         {
@@ -361,8 +345,6 @@ public partial class SeedSearchOverlay : CanvasLayer
         _closeButton.TooltipText = Localization.T("Close");
         _boardTabButton.Text = Localization.T("Board");
         _boardTabButton.TooltipText = Localization.T("Show search board");
-        _popularTabButton.Text = Localization.T("Popular");
-        _popularTabButton.TooltipText = Localization.T("Show popular searches");
         _savedTabButton.Text = Localization.T("Saved");
         _savedTabButton.TooltipText = Localization.T("Show saved searches");
     }
@@ -634,26 +616,6 @@ public partial class SeedSearchOverlay : CanvasLayer
         var label = MakeLabel(message, 14, MutedText);
         label.AutowrapMode = TextServer.AutowrapMode.WordSmart;
         content.AddChild(label);
-        return panel;
-    }
-
-    private Control BuildPopularPage()
-    {
-        var panel = new PanelContainer();
-        panel.AddThemeStyleboxOverride("panel", MakeStyle(Surface, Border, 8));
-        var margin = MakeMargin(24);
-        panel.AddChild(margin);
-        var content = new VBoxContainer();
-        content.AddThemeConstantOverride("separation", 12);
-        margin.AddChild(content);
-        content.AddChild(MakeLabel("Popular this week", 20, Text));
-        content.AddChild(MakeLabel(
-            "popular searches are ranked from searches saved in this game session and can be reopened directly.",
-            14,
-            MutedText));
-        _popularList = new VBoxContainer();
-        _popularList.AddThemeConstantOverride("separation", 8);
-        content.AddChild(_popularList);
         return panel;
     }
 
@@ -1190,7 +1152,6 @@ public partial class SeedSearchOverlay : CanvasLayer
         _savedSearches.Add(new SavedSearch(_lastQuery, _lastResults.ToList()));
         PersistSavedSearches();
         RebuildSavedList();
-        RebuildPopularList();
         SetStatus("saved this search", Accent);
     }
 
@@ -1404,77 +1365,6 @@ public partial class SeedSearchOverlay : CanvasLayer
         ShowPage(_boardPage);
     }
 
-    private void ShowPopular()
-    {
-        RebuildPopularList();
-        ShowPage(_popularPage);
-    }
-
-    private void RebuildPopularList()
-    {
-        if (_popularList == null)
-        {
-            return;
-        }
-
-        ClearChildren(_popularList);
-        var groups = _savedSearches
-            .GroupBy(saved => SearchKey(saved.Query), StringComparer.Ordinal)
-            .OrderByDescending(group => group.Count())
-            .ThenBy(group => group.Key, StringComparer.Ordinal)
-            .Take(10)
-            .ToArray();
-        if (groups.Length == 0)
-        {
-            _popularList.AddChild(MakeLabel("nothing popular yet. save a search first.", 13, MutedText));
-            return;
-        }
-
-        foreach (var group in groups)
-        {
-            var first = group.First();
-            var row = new HBoxContainer();
-            row.AddThemeConstantOverride("separation", 10);
-            var label = MakeLabel(
-                Localization.F(
-                    group.Count() == 1 ? "{0} search · {1}" : "{0} searches · {1}",
-                    group.Count(),
-                    DescribeQuery(first.Query)),
-                14,
-                Text);
-            label.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
-            label.AutowrapMode = TextServer.AutowrapMode.WordSmart;
-            row.AddChild(label);
-            var open = MakeButton("open", "Open this popular search", 72);
-            open.Pressed += () => OpenSavedSearch(first);
-            row.AddChild(open);
-            _popularList.AddChild(row);
-        }
-    }
-
-    private static string SearchKey(SeedQuery query) =>
-        JsonSerializer.Serialize(query);
-
-    private static string DescribeQuery(SeedQuery query)
-    {
-        var parts = new List<string>();
-        if (query.Character != RunCharacter.Any)
-        {
-            parts.Add(Localization.CharacterName(query.Character));
-        }
-
-        if (!string.IsNullOrWhiteSpace(query.HiddenSpec))
-        {
-            parts.Add(query.HiddenSpec);
-        }
-        else
-        {
-            parts.Add(Localization.T("any run start"));
-        }
-
-        return string.Join(" · ", parts);
-    }
-
     private void OpenSavedSearch(SavedSearch saved)
     {
         _lastQuery = saved.Query;
@@ -1545,7 +1435,6 @@ public partial class SeedSearchOverlay : CanvasLayer
     private void ShowPage(Control selectedPage)
     {
         _boardPage.Visible = selectedPage == _boardPage;
-        _popularPage.Visible = selectedPage == _popularPage;
         _savedPage.Visible = selectedPage == _savedPage;
     }
 

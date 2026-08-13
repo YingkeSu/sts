@@ -28,8 +28,6 @@ public static class Localization
             ["Close"] = "关闭",
             ["Board"] = "开局",
             ["Show search board"] = "显示搜索面板",
-            ["Popular"] = "热门",
-            ["Show popular searches"] = "显示热门搜索",
             ["Saved"] = "已保存",
             ["Show saved searches"] = "显示已保存搜索",
             ["searching"] = "搜索分支",
@@ -142,9 +140,6 @@ public static class Localization
             ["Save this search in the mod"] = "在本 Mod 中保存此搜索",
             ["copy random seed"] = "复制随机种子",
             ["Copy a random seed from the current results"] = "从当前结果中复制一个随机种子",
-            ["Popular this week"] = "本周热门",
-            ["popular searches are ranked from searches saved in this game session and can be reopened directly."] =
-                "热门搜索按本局游戏会话中保存的搜索排名，可直接重新打开。",
             ["Saved in this mod"] = "本 Mod 中的已保存",
             ["saved searches remain available while this game session is open."] =
                 "游戏会话打开期间，保存的搜索保持可用。",
@@ -200,8 +195,6 @@ public static class Localization
                 "尚未保存任何内容。运行一次搜索，然后点击“保存此搜索”。",
             ["open"] = "打开",
             ["Open saved results"] = "打开已保存结果",
-            ["Open this popular search"] = "打开此热门搜索",
-            ["nothing popular yet. save a search first."] = "暂无热门内容。请先保存一次搜索。",
             ["any run start"] = "任意开局",
             ["public beta · v0.110.1"] = "公开测试 · v0.110.1",
             ["English"] = "English",
