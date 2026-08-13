@@ -24,6 +24,33 @@
 游戏运行时计数、节点数和完整布局摘要逐项对齐（见 `tests/SeedLayoutParity.json`），
 单种子 Inspect 仍可额外切换到 `game-runtime` backend 复核。
 
+## 搜索性能优化（快速评估路径）
+
+批量搜索对每个候选按查询生成 `SearchPlan`，按需分阶段评估，而不是每个候选都跑一次
+完整的 `Inspect`：
+
+1. 种子编码与 `XxHash64` 走无分配的 `Span<byte>` 路径（`HashBetaSeed`），不再为每个
+   候选创建种子字符串。
+2. 只包含角色/Neow 等廉价条件的查询只做哈希级评估；不约束地图、首领或深锚点时，
+   候选直接通过，命中的种子才调用完整 `Inspect` 生成结果快照。
+3. 首领/先古/地图计数类约束走紧凑无分配布局链 `ComputeLayoutFast`，并按 spec 需要的
+   最深字段分级（`LayoutDepth`：boss1 / boss2 / 全链），不需要整条 550+ 步 RNG 链时
+   提前返回。
+4. `HiddenSpec` 先解析成 `SpecFragment` 列表（每次搜索一次），逐候选直接用原始 id
+   字段比对；只有奖励/商店/遗物袋/事件等“深详情”键才退回完整 `Inspect` 路径。
+
+基准工具（M2 8 核 Release，`dotnet run --project tools/SeedBenchmark/SeedBenchmark.csproj -c Release`）：
+
+| 查询形态 | 本机实测 | 优化前参考 |
+| --- | --- | --- |
+| 哈希级（如 `char=__never__`） | ≈15.6M runs/s | — |
+| Neow 流级（如 `neow=999`） | ≈4.6M runs/s | — |
+| boss1 布局级（如 `boss1=__never__`） | ≈2.5M runs/s | ≈0.3M runs/s |
+| 深详情（如 `tablet_card=__never__`） | ≈0.64M runs/s | 同左（保留原路径） |
+
+匹配命中后的快照仍会生成完整地图（每个约 40-50ms），这是结果展示成本，不影响扫描
+速率；快照后端与 `Inspect` 完全一致。
+
 ## “宽松条件却没有结果”的原因
 
 首个中文 UI 版本把显示文本 `Any` 直接写进了 `SeedQuery.AncientFilter` 和 `SeedQuery.BossFilter`。中文显示为 `任意` 后，扫描器仍按内部规范值判断，结果等价于要求远古和首领名称包含“任意”，因此所有候选都会被 `MatchesNamedFilter()` 拒绝。

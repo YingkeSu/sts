@@ -83,6 +83,118 @@ for (var sample = 0; sample < 200; sample++)
     }
 }
 
+// The allocation-free fast evaluator must reproduce Inspect's raw layout,
+// Neow and map-count values exactly (differential check over a spread).
+for (var sample = 0; sample < 200; sample++)
+{
+    var index = 1_000_000L + sample * 997L;
+    var seed = SeedSearchEngine.CreateSeed(SeedBranch.PublicBeta, index);
+    var reference = engine.Inspect(
+        seed,
+        SeedBranch.PublicBeta,
+        $"{SeedSearchEngine.PinnedGameApiVersion}|Ironclad|A0|Plain|");
+    var fast = SeedSearchEngine.EvaluateFastCandidate(
+        SeedBranch.PublicBeta,
+        index,
+        RunCharacter.Ironclad,
+        0,
+        withMap: true);
+    if (fast.Act1MapId != int.Parse(reference.Act1MapId) ||
+        fast.Boss1Id != reference.Boss1Id ||
+        fast.Boss2Id != reference.Boss2Id ||
+        fast.Boss3Id != reference.Boss3Id ||
+        fast.Boss3BId != reference.Boss3BId ||
+        fast.Ancient2Id != reference.Ancient2Id ||
+        fast.Ancient3Id != reference.Ancient3Id ||
+        fast.Ancient2OfferId != reference.Ancient2OfferId ||
+        fast.Ancient3OfferId != reference.Ancient3OfferId ||
+        fast.NeowOfferId != reference.NeowOfferId ||
+        fast.NeowGrantAId != reference.NeowGrantAId ||
+        fast.NeowGrantBId != reference.NeowGrantBId ||
+        fast.EliteCount != reference.EliteCount ||
+        fast.ShopCount != reference.ShopCount ||
+        fast.RestSiteCount != reference.RestSiteCount)
+    {
+        throw new InvalidOperationException(
+            $"Fast evaluator diverged from Inspect for {seed}: " +
+            $"boss1 {fast.Boss1Id} vs {reference.Boss1Id}, " +
+            $"neow {fast.NeowOfferId} vs {reference.NeowOfferId}, " +
+            $"elites {fast.EliteCount} vs {reference.EliteCount}");
+    }
+}
+
+// Fast search path must select the same seeds as the full Inspect reference
+// for layout, Neow and map-count constraints.
+var fastDifferentialSpecs = new[]
+{
+    "act=0",
+    "neow=0",
+    "bonus=kaleidoscope",
+    "boss1=vantom",
+    "boss2=kaisercrab",
+    "ancient3=darv",
+};
+foreach (var hiddenSpec in fastDifferentialSpecs)
+{
+    var differentialQuery = new SeedQuery(
+        SeedBranch.PublicBeta,
+        GameApiVersion: SeedSearchEngine.PinnedGameApiVersion,
+        Character: RunCharacter.Any,
+        Ascension: 0,
+        RunMode: RunMode.Plain,
+        StopAfter: 5,
+        StartOffset: 5000,
+        MaxCandidates: 20_000,
+        MinimumElites: 0,
+        MinimumShops: 0,
+        MinimumRestSites: 0,
+        NeowFilter: NeowFilter.Any,
+        AncientFilter: "Any",
+        BossFilter: "Any",
+        HiddenSpec: hiddenSpec);
+    var fastSeeds = engine.Search(differentialQuery, CancellationToken.None)
+        .Select(match => match.Seed)
+        .ToArray();
+    var referenceSeeds = SequentialSearchReference(engine, differentialQuery, CancellationToken.None)
+        .Select(match => match.Seed)
+        .ToArray();
+    if (!fastSeeds.SequenceEqual(referenceSeeds))
+    {
+        throw new InvalidOperationException(
+            $"Fast search path diverged for {hiddenSpec}: " +
+            $"fast={string.Join(",", fastSeeds)}, reference={string.Join(",", referenceSeeds)}");
+    }
+}
+
+var countDifferentialQuery = new SeedQuery(
+    SeedBranch.PublicBeta,
+    GameApiVersion: SeedSearchEngine.PinnedGameApiVersion,
+    Character: RunCharacter.Any,
+    Ascension: 0,
+    RunMode: RunMode.Plain,
+    StopAfter: 5,
+    StartOffset: 5000,
+    MaxCandidates: 20_000,
+    MinimumElites: 1,
+    MinimumShops: 0,
+    MinimumRestSites: 0,
+    NeowFilter: NeowFilter.Any,
+    AncientFilter: "Any",
+    BossFilter: "Any",
+    HiddenSpec: "");
+var fastCountSeeds = engine.Search(countDifferentialQuery, CancellationToken.None)
+    .Select(match => match.Seed)
+    .ToArray();
+var referenceCountSeeds = SequentialSearchReference(engine, countDifferentialQuery, CancellationToken.None)
+    .Select(match => match.Seed)
+    .ToArray();
+if (!fastCountSeeds.SequenceEqual(referenceCountSeeds))
+{
+    throw new InvalidOperationException(
+        $"Fast map-count path diverged: fast={string.Join(",", fastCountSeeds)}, " +
+        $"reference={string.Join(",", referenceCountSeeds)}");
+}
+
 // [issue-3] SearchTheSpire's board exposes none + A1..A10 only. The model,
 // engine context parsing and UI all share MaxAscension so a generic-looking
 // STS2 A0-A20 range cannot regress again (it already did twice).
@@ -1164,11 +1276,7 @@ static IReadOnlyList<SeedMatch> SequentialSearchReference(
 
         var seed = SeedSearchEngine.CreateSeed(query.Branch, start + offset);
         var snapshot = engine.Inspect(seed, query.Branch, context, needsMap);
-        if ((query.MinimumElites == 0 || (snapshot.Map != null && snapshot.EliteCount >= query.MinimumElites)) &&
-            (query.MinimumShops == 0 || (snapshot.Map != null && snapshot.ShopCount >= query.MinimumShops)) &&
-            (query.MinimumRestSites == 0 || (snapshot.Map != null && snapshot.RestSiteCount >= query.MinimumRestSites)) &&
-            (query.NeowFilter != NeowFilter.HasBlessing || snapshot.HasBlessing) &&
-            (query.NeowFilter != NeowFilter.HasCurse || snapshot.HasCurse))
+        if (SeedSearchEngine.Matches(query, snapshot))
         {
             var full = snapshot.Map == null ? engine.Inspect(seed, query.Branch, context) : snapshot;
             matches.Add(new SeedMatch(seed, full));

@@ -1,3 +1,5 @@
+using System.Collections.Concurrent;
+
 namespace SeedSearchPrototype;
 
 /// <summary>
@@ -221,6 +223,8 @@ public sealed class SeedSearchEngine
         var budget = (long)Math.Min(Math.Max(1, query.MaxCandidates), seedCount);
         var start = Math.Clamp(query.StartOffset, 0, seedCount - 1);
         var context = BuildContext(query);
+        var plan = BuildPlan(query);
+        var useFastPath = query.Branch == SeedBranch.PublicBeta && !plan.NeedsDetail;
         var workerCount = Math.Max(1, Environment.ProcessorCount);
         var totalChunks = (budget + chunkSize - 1) / chunkSize;
         var results = new List<SeedMatch>();
@@ -267,18 +271,42 @@ public sealed class SeedSearchEngine
                                 candidateIndex -= seedCount;
                             }
 
-                            var seed = SeedCodec.FromIndex(query.Branch, candidateIndex);
-                            var needsMap = query.MinimumElites > 0 ||
-                                           query.MinimumShops > 0 ||
-                                           query.MinimumRestSites > 0;
-                            var snapshot = Inspect(seed, query.Branch, context, needsMap);
-                            localChecked = offset - offsetStart + 1;
-                            if (Matches(query, snapshot))
+                            SeedMatch? match = null;
+                            if (useFastPath)
                             {
-                                var full = snapshot.Map == null
-                                    ? Inspect(seed, query.Branch, context)
-                                    : snapshot;
-                                local.Add(new SeedMatch(seed, full));
+                                var baseSeed = HashBetaSeed(candidateIndex);
+                                if (FastMatch(
+                                        query,
+                                        plan,
+                                        baseSeed,
+                                        query.Ascension,
+                                        query.Character,
+                                        out _))
+                                {
+                                    var seed = SeedCodec.FromIndex(query.Branch, candidateIndex);
+                                    match = new SeedMatch(seed, Inspect(seed, query.Branch, context));
+                                }
+                            }
+                            else
+                            {
+                                var seed = SeedCodec.FromIndex(query.Branch, candidateIndex);
+                                var needsMap = query.MinimumElites > 0 ||
+                                               query.MinimumShops > 0 ||
+                                               query.MinimumRestSites > 0;
+                                var snapshot = Inspect(seed, query.Branch, context, needsMap);
+                                if (Matches(query, snapshot))
+                                {
+                                    var full = snapshot.Map == null
+                                        ? Inspect(seed, query.Branch, context)
+                                        : snapshot;
+                                    match = new SeedMatch(seed, full);
+                                }
+                            }
+
+                            localChecked = offset - offsetStart + 1;
+                            if (match != null)
+                            {
+                                local.Add(match);
                                 if (local.Count >= stopAfter)
                                 {
                                     break;
@@ -411,8 +439,8 @@ public sealed class SeedSearchEngine
             .ToArray();
         var boss3BId = secondBossPool[Sts2ReferenceRng.NextInt(ref layoutRng, secondBossPool.Length)];
 
-        var ancient2Offers = SearchTheSpireCatalog.AncientOfferIdsFor(ancient2Id, 2);
-        var ancient3Offers = SearchTheSpireCatalog.AncientOfferIdsFor(ancient3Id, 3);
+        var ancient2Offers = AncientOfferPool(ancient2Id, 2);
+        var ancient3Offers = AncientOfferPool(ancient3Id, 3);
         var ancient2OfferPool = ancient2Offers.Count == 0 ? AncientOfferIds : ancient2Offers;
         var ancient3OfferPool = ancient3Offers.Count == 0 ? AncientOfferIds : ancient3Offers;
         var ancient2OfferId = ancient2OfferPool[Sts2ReferenceRng.NextInt(ref layoutRng, ancient2OfferPool.Count)];
@@ -528,6 +556,582 @@ public sealed class SeedSearchEngine
 
     private static string BuildContext(SeedQuery query) =>
         $"{query.GameApiVersion}|{query.Character}|A{query.Ascension}|{query.RunMode}|{query.HiddenSpec}";
+
+    private sealed class SearchPlan
+    {
+        public bool NeedsMap;
+        public bool NeedsNeow;
+        public bool NeedsLayout;
+        public bool NeedsDetail;
+        public int LayoutDepth;
+        public List<SpecFragment> Fragments = new();
+        public string CharacterName = "";
+    }
+
+    private readonly record struct SpecFragment(string Key, string Expected, bool HasExpected);
+
+    internal struct CandidateData
+    {
+        public CandidateData()
+        {
+            Boss1Id = "";
+            Boss2Id = "";
+            Boss3Id = "";
+            Boss3BId = "";
+            Ancient2Id = "";
+            Ancient3Id = "";
+            Ancient2OfferId = "";
+            Ancient3OfferId = "";
+            NeowOfferId = "";
+            NeowGrantAId = "";
+            NeowGrantBId = "";
+            BonusAId = "";
+            BonusBId = "";
+        }
+
+        public int Act1MapId;
+        public int EliteCount;
+        public int ShopCount;
+        public int RestSiteCount;
+        public string Boss1Id = "";
+        public string Boss2Id = "";
+        public string Boss3Id = "";
+        public string Boss3BId = "";
+        public string Ancient2Id = "";
+        public string Ancient3Id = "";
+        public string Ancient2OfferId = "";
+        public string Ancient3OfferId = "";
+        public string NeowOfferId = "";
+        public string NeowGrantAId = "";
+        public string NeowGrantBId = "";
+        public string BonusAId = "";
+        public string BonusBId = "";
+        public bool HasMap;
+    }
+
+    private static readonly ConcurrentDictionary<(string Ancient, int Act), IReadOnlyList<string>>
+        AncientOfferPools = new();
+
+    private static IReadOnlyList<string> AncientOfferPool(string ancient, int act) =>
+        ancient.Length == 0
+            ? Array.Empty<string>()
+            : AncientOfferPools.GetOrAdd(
+                (ancient, act),
+                key => SearchTheSpireCatalog.AncientOfferIdsFor(key.Ancient, key.Act));
+
+    private static SearchPlan BuildPlan(SeedQuery query)
+    {
+        var plan = new SearchPlan
+        {
+            NeedsMap = query.MinimumElites > 0 ||
+                       query.MinimumShops > 0 ||
+                       query.MinimumRestSites > 0,
+            NeedsLayout = !IsAnyFilter(query.AncientFilter) || !IsAnyFilter(query.BossFilter),
+            LayoutDepth = !IsAnyFilter(query.AncientFilter) || !IsAnyFilter(query.BossFilter) ? 3 : 0,
+            CharacterName = query.Character.ToString(),
+        };
+        if (plan.NeedsMap)
+        {
+            plan.LayoutDepth = Math.Max(plan.LayoutDepth, 1);
+        }
+
+        if (!string.IsNullOrWhiteSpace(query.HiddenSpec))
+        {
+            foreach (var fragment in query.HiddenSpec.Split(
+                         ',',
+                         StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                var separator = fragment.IndexOf('=');
+                var key = separator > 0 ? fragment[..separator] : fragment;
+                var expected = separator > 0 ? fragment[(separator + 1)..] : "";
+                plan.Fragments.Add(new SpecFragment(key, expected, separator > 0));
+                plan.NeedsNeow |= SpecNeedsNeow(key);
+                plan.NeedsLayout |= SpecNeedsLayout(key);
+                plan.NeedsDetail |= SpecNeedsDetail(key);
+                plan.LayoutDepth = Math.Max(plan.LayoutDepth, SpecLayoutDepth(key));
+            }
+        }
+
+        if (plan.NeedsMap || plan.NeedsDetail)
+        {
+            plan.NeedsLayout = true;
+            plan.LayoutDepth = Math.Max(plan.LayoutDepth, plan.NeedsDetail ? 3 : 1);
+        }
+
+        return plan;
+    }
+
+    private static bool IsAnyFilter(string filter) =>
+        string.IsNullOrWhiteSpace(filter) ||
+        filter.Equals("Any", StringComparison.OrdinalIgnoreCase) ||
+        filter is "任意" or "任何";
+
+    private static bool SpecNeedsNeow(string key) =>
+        key is "neow" or "neowOffer" or "bonus" or "bonesGrantA" or "bonesGrantB" or "bones_relic";
+
+    private static bool SpecNeedsLayout(string key) =>
+        key is "act" or "boss1" or "boss2" or "boss3" or "boss3b" or
+            "ancient2" or "ancient3" or "ancient2_offers" or "ancient2_offers_if" or
+            "ancient3_offers" or "ancient3_offers_if";
+
+    private static int SpecLayoutDepth(string key) => key switch
+    {
+        "boss1" => 1,
+        "boss2" or "ancient2" => 2,
+        "boss3" or "boss3b" or "ancient3" or
+            "ancient2_offers" or "ancient2_offers_if" or
+            "ancient3_offers" or "ancient3_offers_if" => 3,
+        _ => 0,
+    };
+
+    private static bool SpecNeedsDetail(string key) =>
+        key is "reward_cards" or "reward1" or "reward2" or "reward3" or
+            "reward1_card" or "reward2_card" or "reward3_card" or
+            "shop_relic" or "bag_relic" or
+            "event_in1" or "event_in2" or "event_in3" or "event_in4" or "event_in5" or
+            "bones_curse" or "bones_tablet_card" or "bones_arcane_card" or
+            "bones_paperweight_card" or "bones_coffer_card" or "bones_coffer_potion" or
+            "bones_newleaf_card" or "bones_capsule_set" or "bones_kaleido_distinct" or
+            "bones_scrollbox_contains" or "bones_poultice_set" or
+            "tablet_card" or "poultice_set" or "large_relic" or "paperweight_card" or
+            "arcane_card" or "coffer_card" or "coffer_potion" or "kaleido_distinct" or
+            "newleaf_card" or "scrollbox_contains" or "phial_potion" or "capsule_relic";
+
+    private static bool FastMatch(
+        SeedQuery query,
+        SearchPlan plan,
+        ulong baseSeed,
+        int ascension,
+        RunCharacter character,
+        out CandidateData data)
+    {
+        data = new CandidateData
+        {
+            Act1MapId = -1,
+            EliteCount = -1,
+            ShopCount = -1,
+            RestSiteCount = -1,
+        };
+        if (plan.NeedsMap || plan.NeedsLayout)
+        {
+            var actSelectionRng = Sts2ReferenceRng.Create(baseSeed + StreamHash(query.Branch, "act_selection"));
+            data.Act1MapId = Sts2ReferenceRng.NextInt(ref actSelectionRng, 2);
+        }
+
+        if (plan.NeedsNeow)
+        {
+            ComputeNeowFast(baseSeed, query.Branch, ref data);
+        }
+
+        if (plan.NeedsLayout)
+        {
+            ComputeLayoutFast(baseSeed, query.Branch, data.Act1MapId, plan.LayoutDepth, ref data);
+            if (plan.NeedsMap)
+            {
+                var map = ReferenceActMap.Generate(
+                    data.Act1MapId.ToString(),
+                    unchecked(baseSeed + StreamHash(query.Branch, "act_1_map")),
+                    ascension,
+                    data.Boss1Id);
+                data.EliteCount = map.Nodes.Count(node => node.Kind == "elite");
+                data.ShopCount = map.Nodes.Count(node => node.Kind == "shop");
+                data.RestSiteCount = map.Nodes.Count(node => node.Kind == "rest");
+                data.HasMap = true;
+            }
+        }
+
+        if (query.MinimumElites > 0 && data.EliteCount < query.MinimumElites)
+        {
+            return false;
+        }
+
+        if (query.MinimumShops > 0 && data.ShopCount < query.MinimumShops)
+        {
+            return false;
+        }
+
+        if (query.MinimumRestSites > 0 && data.RestSiteCount < query.MinimumRestSites)
+        {
+            return false;
+        }
+
+        if (!IsAnyFilter(query.AncientFilter) &&
+            !MatchesNamedFilter(AncientSummary(in data), query.AncientFilter))
+        {
+            return false;
+        }
+
+        if (!IsAnyFilter(query.BossFilter) &&
+            !MatchesNamedFilter(BossSummary(in data), query.BossFilter))
+        {
+            return false;
+        }
+
+        if (!string.IsNullOrWhiteSpace(query.HiddenSpec))
+        {
+            if (!MatchesSpecFragmentsFast(
+                    plan.Fragments,
+                    in data,
+                    character,
+                    ascension,
+                    plan.CharacterName))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static void ComputeNeowFast(
+        ulong baseSeed,
+        SeedBranch branch,
+        ref CandidateData data)
+    {
+        var neowRng = Sts2ReferenceRng.Create(baseSeed + StreamHash(branch, "NEOW"));
+        var rewardsRng = Sts2ReferenceRng.Create(baseSeed + StreamHash(branch, "rewards"));
+        data.NeowOfferId = CursedOffers[Sts2ReferenceRng.NextInt(ref neowRng, CursedOffers.Length)];
+        var bonusPool = BuildNeowBonusPool(data.NeowOfferId, ref neowRng);
+        data.BonusAId = bonusPool[0];
+        data.BonusBId = bonusPool[1];
+        if (data.NeowOfferId == "neowsbones")
+        {
+            var grantPool = GrantRelics.ToList();
+            Sts2ReferenceRng.Shuffle(ref rewardsRng, grantPool);
+            data.NeowGrantAId = grantPool[0];
+            data.NeowGrantBId = grantPool[1];
+        }
+    }
+
+    private static void ComputeLayoutFast(
+        ulong baseSeed,
+        SeedBranch branch,
+        int act1MapId,
+        int depth,
+        ref CandidateData data)
+    {
+        var layoutRng = Sts2ReferenceRng.Create(baseSeed + StreamHash(branch, "up_front"));
+        Advance(ref layoutRng, 29 + 24 + 34 + 24 + 1);
+        Advance(ref layoutRng, 31 + 25 + 37 + 25);
+        var darv2 = Sts2ReferenceRng.NextInt(ref layoutRng, 2);
+        var darv3 = Sts2ReferenceRng.NextInt(ref layoutRng, 2) != 0 && darv2 == 0;
+
+        Advance(ref layoutRng, (act1MapId == 1 ? 10 : 13) + 18 - 1);
+        var act1Easy1 = Sts2ReferenceRng.NextInt(ref layoutRng, 4);
+        var act1Easy2 = Sts2ReferenceRng.NextInt(ref layoutRng, 3);
+        var act1Easy3 = Sts2ReferenceRng.NextInt(ref layoutRng, 2);
+        AdjustDistinctAct1Easy(ref act1Easy1, ref act1Easy2, ref act1Easy3);
+        var previousCombat = (act1MapId == 1 ? UnderdocksEasyCombats : OvergrowthEasyCombats)[act1Easy3];
+        ConsumeHardPoolNoAlloc(
+            ref layoutRng,
+            act1MapId == 1 ? UnderdocksHardCombats : OvergrowthHardCombats,
+            12,
+            ref previousCombat);
+        AdvanceElites(ref layoutRng);
+        data.Boss1Id = (act1MapId == 1 ? UnderdocksBosses : OvergrowthBosses)
+            [Sts2ReferenceRng.NextInt(ref layoutRng, 3)];
+        Advance(ref layoutRng, 1);
+        if (depth < 2)
+        {
+            return;
+        }
+
+        Advance(ref layoutRng, 10 + 18 - 1);
+        var act2Easy1 = Sts2ReferenceRng.NextInt(ref layoutRng, 4);
+        var act2Easy2 = Sts2ReferenceRng.NextInt(ref layoutRng, 3);
+        if (act2Easy2 >= act2Easy1)
+        {
+            act2Easy2 += 1;
+        }
+
+        previousCombat = HiveEasyCombats[act2Easy2];
+        ConsumeHardPoolNoAlloc(ref layoutRng, HiveHardCombats, 12, ref previousCombat);
+        AdvanceElites(ref layoutRng);
+        data.Boss2Id = Act2Bosses[Sts2ReferenceRng.NextInt(ref layoutRng, Act2Bosses.Length)];
+        data.Ancient2Id = Act2Ancients[Sts2ReferenceRng.NextInt(ref layoutRng, 3 + (darv2 != 0 ? 1 : 0))];
+        if (depth < 3)
+        {
+            return;
+        }
+
+        Advance(ref layoutRng, 7 + 18 - 1);
+        var act3Easy1 = Sts2ReferenceRng.NextInt(ref layoutRng, 3);
+        var act3Easy2 = Sts2ReferenceRng.NextInt(ref layoutRng, 2);
+        if (act3Easy2 >= act3Easy1)
+        {
+            act3Easy2 += 1;
+        }
+
+        previousCombat = GloryEasyCombats[act3Easy2];
+        ConsumeHardPoolNoAlloc(ref layoutRng, GloryHardCombats, 11, ref previousCombat);
+        AdvanceElites(ref layoutRng);
+        data.Boss3Id = Act3Bosses[Sts2ReferenceRng.NextInt(ref layoutRng, Act3Bosses.Length)];
+        data.Ancient3Id = Act3Ancients[Sts2ReferenceRng.NextInt(ref layoutRng, 3 + (darv3 ? 1 : 0))];
+        data.Boss3BId = SecondBossNoAlloc(ref layoutRng, data.Boss3Id);
+
+        var ancient2OfferPool = AncientOfferPool(data.Ancient2Id, 2);
+        var ancient3OfferPool = AncientOfferPool(data.Ancient3Id, 3);
+        data.Ancient2OfferId = ancient2OfferPool.Count == 0
+            ? AncientOfferIds[Sts2ReferenceRng.NextInt(ref layoutRng, AncientOfferIds.Length)]
+            : ancient2OfferPool[Sts2ReferenceRng.NextInt(ref layoutRng, ancient2OfferPool.Count)];
+        data.Ancient3OfferId = ancient3OfferPool.Count == 0
+            ? AncientOfferIds[Sts2ReferenceRng.NextInt(ref layoutRng, AncientOfferIds.Length)]
+            : ancient3OfferPool[Sts2ReferenceRng.NextInt(ref layoutRng, ancient3OfferPool.Count)];
+    }
+
+    private static string SecondBossNoAlloc(ref Sts2ReferenceRng.RngState rng, string boss3Id)
+    {
+        var first = "";
+        var second = "";
+        foreach (var id in Act3Bosses)
+        {
+            if (id.Equals(boss3Id, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (first.Length == 0)
+            {
+                first = id;
+            }
+            else
+            {
+                second = id;
+                break;
+            }
+        }
+
+        return Sts2ReferenceRng.NextInt(ref rng, 2) == 0 ? first : second;
+    }
+
+    private static void ConsumeHardPoolNoAlloc(
+        ref Sts2ReferenceRng.RngState rng,
+        int[] fullPool,
+        int count,
+        ref int previous)
+    {
+        Span<bool> active = stackalloc bool[16];
+        for (var index = 0; index < fullPool.Length; index++)
+        {
+            active[index] = true;
+        }
+
+        var activeCount = fullPool.Length;
+        for (var i = 0; i < count; i++)
+        {
+            if (activeCount == 0)
+            {
+                for (var index = 0; index < fullPool.Length; index++)
+                {
+                    active[index] = true;
+                }
+
+                activeCount = fullPool.Length;
+            }
+
+            var doCheck = false;
+            for (var index = 0; index < fullPool.Length; index++)
+            {
+                if (active[index] && !SharesCombatTags(fullPool[index], previous))
+                {
+                    doCheck = true;
+                    break;
+                }
+            }
+
+            int pickedIndex;
+            do
+            {
+                var pick = Sts2ReferenceRng.NextInt(ref rng, activeCount);
+                pickedIndex = -1;
+                var seen = 0;
+                for (var index = 0; index < fullPool.Length; index++)
+                {
+                    if (!active[index])
+                    {
+                        continue;
+                    }
+
+                    if (seen++ == pick)
+                    {
+                        pickedIndex = index;
+                        break;
+                    }
+                }
+            } while (doCheck && SharesCombatTags(fullPool[pickedIndex], previous));
+
+            previous = fullPool[pickedIndex];
+            active[pickedIndex] = false;
+            activeCount--;
+        }
+    }
+
+    private static string AncientSummary(in CandidateData data) =>
+        data.Ancient2Id.Length == 0
+            ? ""
+            : $"{Humanize(data.Ancient2Id)} / {Humanize(data.Ancient3Id)}";
+
+    private static string BossSummary(in CandidateData data) =>
+        data.Boss1Id.Length == 0
+            ? ""
+            : $"{Humanize(data.Boss1Id)} / {Humanize(data.Boss2Id)} / {Humanize(data.Boss3Id)}";
+
+    private static string BuildNeowSummary(in CandidateData data) =>
+        data.NeowOfferId.Length == 0
+            ? ""
+            : $"{Humanize(data.NeowOfferId)} · " +
+              $"{Humanize(data.NeowOfferId)} / {Humanize(data.BonusAId)} / {Humanize(data.BonusBId)}";
+
+    private static bool MatchesSpecFragmentsFast(
+        IReadOnlyList<SpecFragment> fragments,
+        in CandidateData data,
+        RunCharacter character,
+        int ascension,
+        string characterName)
+    {
+        var neowSummary = (string?)null;
+        var actMapId = (string?)null;
+        foreach (var fragment in fragments)
+        {
+            if (fragment.Key == "reward_ordered")
+            {
+                continue;
+            }
+
+            if (fragment.Key == "scarcity")
+            {
+                if (ascension < 7)
+                {
+                    return false;
+                }
+
+                continue;
+            }
+
+            if (!fragment.HasExpected)
+            {
+                continue;
+            }
+
+            if (fragment.Key == "bonus")
+            {
+                neowSummary ??= BuildNeowSummary(in data);
+                if (!neowSummary.Contains(fragment.Expected, StringComparison.OrdinalIgnoreCase))
+                {
+                    return false;
+                }
+
+                continue;
+            }
+
+            if (fragment.Key == "act")
+            {
+                actMapId ??= data.Act1MapId.ToString();
+                if (!actMapId.Equals(fragment.Expected, StringComparison.OrdinalIgnoreCase))
+                {
+                    return false;
+                }
+
+                continue;
+            }
+
+            if (!MatchesSpecFragmentFast(
+                    fragment.Key,
+                    fragment.Expected,
+                    in data,
+                    character,
+                    characterName))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static bool MatchesSpecFragmentFast(
+        string key,
+        string expected,
+        in CandidateData data,
+        RunCharacter character,
+        string characterName)
+    {
+        return key switch
+        {
+            "neowOffer" => data.NeowOfferId.Equals(expected, StringComparison.OrdinalIgnoreCase),
+            "bonesGrantA" => data.NeowGrantAId.Equals(expected, StringComparison.OrdinalIgnoreCase),
+            "bonesGrantB" => data.NeowGrantBId.Equals(expected, StringComparison.OrdinalIgnoreCase),
+            "char" => characterName.Equals(expected, StringComparison.OrdinalIgnoreCase),
+            "neow" => int.TryParse(expected, out var index) &&
+                      index >= 0 &&
+                      index < CursedOffers.Length &&
+                      data.NeowOfferId.Equals(CursedOffers[index], StringComparison.OrdinalIgnoreCase),
+            "boss1" => data.Boss1Id.Equals(expected, StringComparison.OrdinalIgnoreCase),
+            "boss2" => data.Boss2Id.Equals(expected, StringComparison.OrdinalIgnoreCase),
+            "boss3" => data.Boss3Id.Equals(expected, StringComparison.OrdinalIgnoreCase),
+            "boss3b" => data.Boss3BId.Equals(expected, StringComparison.OrdinalIgnoreCase),
+            "ancient2" => data.Ancient2Id.Equals(expected, StringComparison.OrdinalIgnoreCase),
+            "ancient3" => data.Ancient3Id.Equals(expected, StringComparison.OrdinalIgnoreCase),
+            "ancient2_offers" or "ancient2_offers_if" =>
+                data.Ancient2OfferId.Equals(expected, StringComparison.OrdinalIgnoreCase),
+            "ancient3_offers" or "ancient3_offers_if" =>
+                data.Ancient3OfferId.Equals(expected, StringComparison.OrdinalIgnoreCase),
+            "bones_relic" => ContainsMultiset($"{data.NeowGrantAId}+{data.NeowGrantBId}", expected),
+            "reward_within" or "shop_within" or "bag_within" or "event_within" =>
+                int.TryParse(expected, out var window) && window > 0,
+            "rares" => int.TryParse(expected, out var rares) && rares is >= 1 and <= 6,
+            _ => false,
+        };
+    }
+
+    private static ulong HashBetaSeed(long index)
+    {
+        Span<byte> bytes = stackalloc byte[BetaSeedLength];
+        var value = unchecked((ulong)Math.Max(0, index));
+        for (var position = bytes.Length - 1; position >= 0; position--)
+        {
+            bytes[position] = (byte)BetaAlphabet[(int)(value % (ulong)BetaAlphabet.Length)];
+            value /= (ulong)BetaAlphabet.Length;
+        }
+
+        bytes.Reverse();
+        return Sts2ReferenceRng.HashCode64(bytes);
+    }
+
+    internal static CandidateData EvaluateFastCandidate(
+        SeedBranch branch,
+        long index,
+        RunCharacter character,
+        int ascension,
+        bool withMap = false)
+    {
+        var baseSeed = HashBetaSeed(index);
+        var data = new CandidateData
+        {
+            Act1MapId = -1,
+            EliteCount = -1,
+            ShopCount = -1,
+            RestSiteCount = -1,
+        };
+        var actSelectionRng = Sts2ReferenceRng.Create(baseSeed + StreamHash(branch, "act_selection"));
+        data.Act1MapId = Sts2ReferenceRng.NextInt(ref actSelectionRng, 2);
+        ComputeNeowFast(baseSeed, branch, ref data);
+        ComputeLayoutFast(baseSeed, branch, data.Act1MapId, 3, ref data);
+        if (withMap)
+        {
+            var map = ReferenceActMap.Generate(
+                data.Act1MapId.ToString(),
+                unchecked(baseSeed + StreamHash(branch, "act_1_map")),
+                ascension,
+                data.Boss1Id);
+            data.EliteCount = map.Nodes.Count(node => node.Kind == "elite");
+            data.ShopCount = map.Nodes.Count(node => node.Kind == "shop");
+            data.RestSiteCount = map.Nodes.Count(node => node.Kind == "rest");
+            data.HasMap = true;
+        }
+
+        return data;
+    }
 
     private static void Advance(ref Sts2ReferenceRng.RngState rng, int count)
     {
@@ -1009,7 +1613,7 @@ public sealed class SeedSearchEngine
         return string.Join('+', selected);
     }
 
-    private static bool Matches(SeedQuery query, SeedSnapshot snapshot)
+    internal static bool Matches(SeedQuery query, SeedSnapshot snapshot)
     {
         if (query.Character != RunCharacter.Any && snapshot.Character != query.Character)
         {

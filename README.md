@@ -18,6 +18,10 @@
   首领显示游戏内图标；角色下拉框带角色图标，并随选中角色展示角色肖像。
 - 批量搜索按候选索引分块并行，占满本机全部 CPU 核心；版本化卡牌/遗物/药水池
   按角色预计算并缓存，候选热循环不再重复构建池。
+- 批量搜索带查询计划：无分配种子编码/哈希、Neow/boss1/布局按需分级评估、`HiddenSpec`
+  预先解析；只有命中种子才生成完整快照。可用
+  `dotnet run --project tools/SeedBenchmark/SeedBenchmark.csproj -c Release`
+  查看本机各查询形态的 runs/s（详细对比见 [docs/seed-scan-design.md](docs/seed-scan-design.md)）。
 - Act 1 地图由 v0.110.1 `StandardActMap` 移植生成，搜索结果的路线、精英/商店/
   休息点计数与游戏内地图一致；预览地图直接使用游戏自带的房间图标。
 

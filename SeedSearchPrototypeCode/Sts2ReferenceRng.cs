@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Text;
 
 namespace SeedSearchPrototype;
@@ -27,9 +28,8 @@ internal static class Sts2ReferenceRng
         return unchecked((int)(first + second * 1566083941u));
     }
 
-    public static ulong HashCode64(string value)
+    public static ulong HashCode64(ReadOnlySpan<byte> bytes)
     {
-        var bytes = Encoding.UTF8.GetBytes(value);
         var offset = 0;
         var length = bytes.Length;
         ulong hash;
@@ -43,13 +43,13 @@ internal static class Sts2ReferenceRng
             var limit = length - 32;
             while (offset <= limit)
             {
-                v1 = Round(v1, ReadUInt64(bytes, offset));
+                v1 = Round(v1, BinaryPrimitives.ReadUInt64LittleEndian(bytes[offset..]));
                 offset += 8;
-                v2 = Round(v2, ReadUInt64(bytes, offset));
+                v2 = Round(v2, BinaryPrimitives.ReadUInt64LittleEndian(bytes[offset..]));
                 offset += 8;
-                v3 = Round(v3, ReadUInt64(bytes, offset));
+                v3 = Round(v3, BinaryPrimitives.ReadUInt64LittleEndian(bytes[offset..]));
                 offset += 8;
-                v4 = Round(v4, ReadUInt64(bytes, offset));
+                v4 = Round(v4, BinaryPrimitives.ReadUInt64LittleEndian(bytes[offset..]));
                 offset += 8;
             }
 
@@ -67,14 +67,14 @@ internal static class Sts2ReferenceRng
         hash += (ulong)length;
         while (offset + 8 <= length)
         {
-            hash ^= Round(0, ReadUInt64(bytes, offset));
+            hash ^= Round(0, BinaryPrimitives.ReadUInt64LittleEndian(bytes[offset..]));
             hash = RotateLeft(hash, 27) * Prime1 + Prime4;
             offset += 8;
         }
 
         if (offset + 4 <= length)
         {
-            hash ^= ReadUInt32(bytes, offset) * Prime1;
+            hash ^= BinaryPrimitives.ReadUInt32LittleEndian(bytes[offset..]) * Prime1;
             hash = RotateLeft(hash, 23) * Prime2 + Prime3;
             offset += 4;
         }
@@ -92,6 +92,8 @@ internal static class Sts2ReferenceRng
         hash *= Prime3;
         return hash ^ (hash >> 32);
     }
+
+    public static ulong HashCode64(string value) => HashCode64(Encoding.UTF8.GetBytes(value));
 
     public static RngState Create(ulong preseed)
     {
@@ -136,23 +138,6 @@ internal static class Sts2ReferenceRng
 
     private static ulong MergeRound(ulong accumulator, ulong value) =>
         (accumulator ^ Round(0, value)) * Prime1 + Prime4;
-
-    private static ulong ReadUInt64(byte[] bytes, int offset)
-    {
-        ulong value = 0;
-        for (var index = 0; index < 8; index++)
-        {
-            value |= (ulong)bytes[offset + index] << (index * 8);
-        }
-
-        return value;
-    }
-
-    private static uint ReadUInt32(byte[] bytes, int offset) =>
-        (uint)(bytes[offset]
-            | (bytes[offset + 1] << 8)
-            | (bytes[offset + 2] << 16)
-            | (bytes[offset + 3] << 24));
 
     private static ulong RotateLeft(ulong value, int bits) =>
         (value << bits) | (value >> (64 - bits));
