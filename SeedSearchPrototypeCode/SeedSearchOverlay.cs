@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json;
 using Godot;
@@ -29,6 +30,7 @@ public partial class SeedSearchOverlay : CanvasLayer
     private readonly SeedSearchEngine _engine = new();
     private readonly List<SavedSearch> _savedSearches = new();
     private readonly Dictionary<string, SeedSnapshot> _runtimeDetails = new(StringComparer.Ordinal);
+    private readonly Stopwatch _searchStopwatch = new();
 
     private Control _shell = null!;
     private Control _backdrop = null!;
@@ -42,6 +44,7 @@ public partial class SeedSearchOverlay : CanvasLayer
     private Label _statusLabel = null!;
     private Label _progressLabel = null!;
     private Label _resultCountLabel = null!;
+    private Label _statsLabel = null!;
     private Label _inspectStatusLabel = null!;
     private LineEdit _inspectInput = null!;
     private LineEdit _advancedInput = null!;
@@ -82,6 +85,7 @@ public partial class SeedSearchOverlay : CanvasLayer
     private SeedQuery? _lastQuery;
     private IReadOnlyList<SeedMatch> _lastResults = Array.Empty<SeedMatch>();
     private long _lastProgress;
+    private long _lastMatchCount;
     private bool _showSpoilers;
 
     public override void _Ready()
@@ -129,12 +133,20 @@ public partial class SeedSearchOverlay : CanvasLayer
             {
                 RestoreSearchUi();
                 SetStatus("search cancelled", MutedText);
+                _statsLabel.Text = BuildSearchStats(
+                    _lastProgress,
+                    (int)_lastMatchCount,
+                    _searchStopwatch.Elapsed.TotalSeconds);
             }
             else if (completedTask.IsFaulted)
             {
                 MainFile.Logger.Error($"Seed search failed: {completedTask.Exception}");
                 RestoreSearchUi();
                 SetStatus("search failed; check godot.log", Danger);
+                _statsLabel.Text = BuildSearchStats(
+                    _lastProgress,
+                    (int)_lastMatchCount,
+                    _searchStopwatch.Elapsed.TotalSeconds);
             }
             else
             {
@@ -153,9 +165,11 @@ public partial class SeedSearchOverlay : CanvasLayer
 
         if (_searchTask != null)
         {
+            var elapsedSeconds = _searchStopwatch.Elapsed.TotalSeconds;
             _progressLabel.Text = Localization.F(
                 "searching · {0} candidates checked",
                 _lastProgress.ToString("N0", CultureInfo.InvariantCulture));
+            _statsLabel.Text = BuildSearchStats(_lastProgress, (int)_lastMatchCount, elapsedSeconds);
         }
     }
 
@@ -569,6 +583,10 @@ public partial class SeedSearchOverlay : CanvasLayer
         _spoilerButton.Pressed += ToggleSpoilers;
         header.AddChild(_spoilerButton);
 
+        _statsLabel = MakeLabel("", 11, MutedText);
+        _statsLabel.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+        content.AddChild(_statsLabel);
+
         var headerRow = new HBoxContainer();
         headerRow.AddThemeConstantOverride("separation", 8);
         content.AddChild(headerRow);
@@ -666,10 +684,16 @@ public partial class SeedSearchOverlay : CanvasLayer
         var query = FinalizeQuery(ReadQuery());
         _lastQuery = query;
         _lastProgress = 0;
+        _lastMatchCount = 0;
+        _searchStopwatch.Restart();
         _searchCancellation = new CancellationTokenSource();
         var token = _searchCancellation.Token;
         _searchTask = Task.Run(
-            () => _engine.Search(query, token, progress => Interlocked.Exchange(ref _lastProgress, progress.Checked)),
+            () => _engine.Search(query, token, progress =>
+            {
+                Interlocked.Exchange(ref _lastProgress, progress.Checked);
+                Interlocked.Exchange(ref _lastMatchCount, progress.MatchCount);
+            }),
             token);
 
         _searchButton.Disabled = true;
@@ -717,6 +741,7 @@ public partial class SeedSearchOverlay : CanvasLayer
         var match = new SeedMatch(seed, snapshot);
         _lastQuery = query;
         ApplyResults(new[] { match });
+        _statsLabel.Text = "";
         _inspectStatusLabel.Text = snapshot.Backend == "game-runtime"
             ? Localization.F("inspected {0} · game runtime", seed)
             : Localization.F("inspected {0} · reference engine", seed);
@@ -735,6 +760,7 @@ public partial class SeedSearchOverlay : CanvasLayer
         _cancelButton.Disabled = true;
         _resultCountLabel.Text = Localization.F("{0} matches", results.Count);
         _progressLabel.Text = Localization.T("search complete");
+        _statsLabel.Text = BuildSearchStats(_lastProgress, results.Count, _searchStopwatch.Elapsed.TotalSeconds);
         ClearChildren(_resultsList);
 
         if (results.Count == 0)
@@ -1233,6 +1259,73 @@ public partial class SeedSearchOverlay : CanvasLayer
         }
     }
 
+    private string BuildSearchStats(long checkedCandidates, int matches, double elapsedSeconds)
+    {
+        var branch = _lastQuery?.Branch ?? SeedBranch.PublicBeta;
+        var runsPerSecond = elapsedSeconds > 0 ? checkedCandidates / elapsedSeconds : 0;
+        var swept = Localization.F(
+            "{0} of {1}",
+            checkedCandidates.ToString("N0", CultureInfo.InvariantCulture),
+            TotalSeedDisplay(branch));
+        var engine = "cpu";
+        var summary = Localization.F(
+            "MATCHES {0} · RUNS SWEPT {1} · RUNS/SEC {2} · TIME {3} · ENGINE {4}",
+            matches,
+            swept,
+            runsPerSecond.ToString("N0", CultureInfo.InvariantCulture),
+            elapsedSeconds.ToString("0.0", CultureInfo.InvariantCulture),
+            engine);
+        if (matches <= 0 || checkedCandidates <= 0)
+        {
+            return summary;
+        }
+
+        var oneIn = checkedCandidates / (double)matches;
+        var firstMatchSeconds = elapsedSeconds / matches;
+        var nineInTenSeconds = firstMatchSeconds * Math.Log(10);
+        var confidence = matches switch
+        {
+            >= 20 => "high",
+            >= 5 => "medium",
+            _ => "low",
+        };
+        return Localization.F(
+                "about 1 in {0} runs match these filters ({1} confidence)",
+                FormatOdds(oneIn),
+                Localization.T(confidence)) + "\n" +
+            Localization.F(
+                "first match in about {0} on cpu. nine searches in ten find one by {1}",
+                FormatSeconds(firstMatchSeconds),
+                FormatSeconds(nineInTenSeconds)) + "\n" +
+            summary;
+    }
+
+    private static string FormatOdds(double value)
+    {
+        if (value >= 1_000_000_000_000_000_000d)
+        {
+            return (value / 1e18).ToString("0.##", CultureInfo.InvariantCulture) + " quintillion";
+        }
+
+        if (value >= 1_000_000_000_000_000d)
+        {
+            return (value / 1e15).ToString("0.##", CultureInfo.InvariantCulture) + " quadrillion";
+        }
+
+        if (value >= 1_000_000_000_000d)
+        {
+            return (value / 1e12).ToString("0.##", CultureInfo.InvariantCulture) + " trillion";
+        }
+
+        return value.ToString("N0", CultureInfo.InvariantCulture);
+    }
+
+    private static string FormatSeconds(double seconds) =>
+        seconds.ToString("0.0", CultureInfo.InvariantCulture) + "s";
+
+    private static string TotalSeedDisplay(SeedBranch branch) =>
+        branch == SeedBranch.PublicBeta ? "≈2.4 quintillion" : "≈4.3 billion";
+
     private void ClearBoard()
     {
         CancelSearch();
@@ -1249,6 +1342,7 @@ public partial class SeedSearchOverlay : CanvasLayer
         _inspectStatusLabel.Text = string.Empty;
         _resultCountLabel.Text = Localization.T("0 matches");
         _progressLabel.Text = Localization.T("ready");
+        _statsLabel.Text = "";
         ClearChildren(_resultsList);
         _stopAfterInput.Selected = 2;
         _maxCandidatesInput.Selected = 0;

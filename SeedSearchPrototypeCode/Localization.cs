@@ -154,6 +154,16 @@ public static class Localization
             ["cancelling…"] = "取消中…",
             ["paste a seed first"] = "请先粘贴种子",
             ["search complete"] = "搜索完成",
+            ["{0} of {1}"] = "{0} / {1}",
+            ["MATCHES {0} · RUNS SWEPT {1} · RUNS/SEC {2} · TIME {3} · ENGINE {4}"] =
+                "匹配 {0} · 已扫 {1} · 每秒 {2} · 用时 {3} · 引擎 {4}",
+            ["about 1 in {0} runs match these filters ({1} confidence)"] =
+                "约每 {0} 局有 1 局匹配这些筛选（{1} 置信度）",
+            ["first match in about {0} on cpu. nine searches in ten find one by {1}"] =
+                "cpu 上首个匹配约需 {0}，十次搜索有九次在 {1} 内找到",
+            ["low"] = "低",
+            ["medium"] = "中",
+            ["high"] = "高",
             ["no seeds matched. remove or loosen a filter and search again."] =
                 "没有匹配的种子。移除或放宽一个筛选条件后重新搜索。",
             ["stopped at the match cap"] = "已到达结果上限",
