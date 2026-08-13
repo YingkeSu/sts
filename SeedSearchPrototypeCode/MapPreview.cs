@@ -9,12 +9,11 @@ namespace SeedSearchPrototype;
 /// </summary>
 public sealed partial class MapPreview : Control
 {
-    private const float CellWidth = 40f;
-    private const float RowHeight = 36f;
-    private const float NodeRadius = 11f;
-    private const float IconSize = 26f;
-    private const float BossIconSize = 34f;
-    private const float Pad = 18f;
+    private const float CellWidth = 44f;
+    private const float RowHeight = 42f;
+    private const float Pad = 16f;
+    private const float IconFill = 0.52f;
+    private const float BossIconFill = 0.68f;
     private static readonly Color EdgeColor = new("888888");
     private static readonly Color GlyphColor = new("ffffff");
 
@@ -63,7 +62,12 @@ public sealed partial class MapPreview : Control
                 continue;
             }
 
-            var size = node.Kind == "boss" ? BossIconSize : IconSize;
+            // Every node owns one cell-sized region; the icon is a fixed
+            // fraction of that region so neighboring icons cannot overlap.
+            var region = Mathf.Min(CellWidth, RowHeight);
+            var size = node.Kind is "boss" or "ancient"
+                ? region * BossIconFill
+                : region * IconFill;
             AddChild(new TextureRect
             {
                 Texture = icon,
@@ -78,10 +82,11 @@ public sealed partial class MapPreview : Control
 
     private void AddTooltipNode(MapNode node, Vector2 center)
     {
+        var region = Mathf.Min(CellWidth, RowHeight);
         var hit = new Control
         {
-            Position = center - Vector2.One * (NodeRadius + 3f),
-            Size = Vector2.One * (NodeRadius + 3f) * 2f,
+            Position = center - Vector2.One * region * 0.5f,
+            Size = Vector2.One * region,
             TooltipText = Localization.T(KindLabel(node.Kind)),
             MouseFilter = MouseFilterEnum.Pass,
         };
@@ -114,7 +119,8 @@ public sealed partial class MapPreview : Control
                 ? value
                 : (Color: new Color("000000"), Glyph: "·");
             var center = _positions[index];
-            DrawCircle(center, NodeRadius, style.Color);
+            var region = Mathf.Min(CellWidth, RowHeight);
+            DrawCircle(center, region * 0.24f, style.Color);
 
             const int fontSize = 10;
             var textWidth = font.GetStringSize(style.Glyph, HorizontalAlignment.Left, -1, fontSize).X;
