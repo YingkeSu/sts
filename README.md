@@ -7,7 +7,7 @@
 - Board / Popular / Saved 标签页；
 - 当前 public beta 分支选择；
 - Neow、Act 1 精英、商店、休息点筛选；
-- 进阶覆盖 A0/A5/A10/A15/A20，与 SearchTheSpire board state 共用同一套数据源；
+- 进阶覆盖 A0-A10（SearchTheSpire board 的 `none` + A1..A10），模型、UI 与恢复路径统一以 A10 为上限；
 - 搜索数量、候选范围、偏移量；
 - Inspect seed；
 - 结果表、保存搜索、复制种子、复制搜索规格、剧透开关。
@@ -16,6 +16,8 @@
 - 点击结果行中的 `details` 查看该种子的 Act 1、Neow、Ancient、Boss 与早期路线摘要；有游戏运行时可用时，会按 SearchTheSpire 预览的样式绘制 Act 1 节点地图（类型着色、虚线路线、Boss/Ancient 收尾）。
 - 卡牌、遗物与首领选择器以游戏官方资源图为主体：卡牌直接显示卡图，遗物和
   首领显示游戏内图标；角色下拉框带角色图标，并随选中角色展示角色肖像。
+- 批量搜索按候选索引分块并行，占满本机全部 CPU 核心；版本化卡牌/遗物/药水池
+  按角色预计算并缓存，候选热循环不再重复构建池。
 
 ## 本地构建
 
@@ -43,7 +45,8 @@ SlayTheSpire2.app/Contents/MacOS/mods/SeedSearchPrototype/
 
 ## 版本边界
 
-- 当前 manifest 钉在 public beta `v0.110.1`；不要把其它分支的 RNG 结果混用。
+- 当前 manifest 与引擎都钉在 public beta `v0.110.1`，唯一来源是 [SeedSearchEngine.cs](SeedSearchPrototypeCode/SeedSearchEngine.cs) 的 `PinnedGameApiVersion`；测试断言 manifest 与常量一致，不要把其它分支的 RNG 结果混用。
+- 版本边界与中文旧保存兼容的根因记录在 [docs/seed-scan-design.md](docs/seed-scan-design.md)；与 SearchTheSpire 的逐元素对照见 [docs/searchthespire-gap-report.md](docs/searchthespire-gap-report.md)，页面源码快照在 [docs/searchthespire-reference/](docs/searchthespire-reference/)。
 - SearchTheSpire 的 seed preview 用于版本与字段抽检；它是浏览器端 Rust/WASM 工具，不作为 Mod 的运行时依赖。
 - Inspect seed 会优先调用游戏运行时的单种子预览；批量搜索使用本地、可替换的 reference RNG backend。查询模型、Picker 与结果详情已经独立，后续替换版本化 RNG backend 时不需要重做页面。
 - 已验证的游戏 API 用法、线程边界与 RNG 细节记录在 [docs/sts2-api-notes.md](docs/sts2-api-notes.md)；踩坑清单沉淀在 `sts2-mod` 技能的 `references/pitfalls.md`。

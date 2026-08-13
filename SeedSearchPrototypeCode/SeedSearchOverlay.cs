@@ -26,6 +26,7 @@ public partial class SeedSearchOverlay : CanvasLayer
 
     private Control _shell = null!;
     private Control _backdrop = null!;
+    private VBoxContainer _pageContent = null!;
     private Control _boardPage = null!;
     private Control _popularPage = null!;
     private Control _savedPage = null!;
@@ -58,6 +59,14 @@ public partial class SeedSearchOverlay : CanvasLayer
     private Button _searchButton = null!;
     private Button _cancelButton = null!;
     private Button _spoilerButton = null!;
+    private Button _launcherButton = null!;
+    private Label _titleLabel = null!;
+    private Label _betaLabel = null!;
+    private Button _languageButton = null!;
+    private Button _closeButton = null!;
+    private Button _boardTabButton = null!;
+    private Button _popularTabButton = null!;
+    private Button _savedTabButton = null!;
     private SearchTheSpirePickerDialog _pickerDialog = null!;
     private SearchTheSpireBoardState _boardState = SearchTheSpireBoardState.Empty;
 
@@ -145,20 +154,20 @@ public partial class SeedSearchOverlay : CanvasLayer
 
     private void BuildLauncher()
     {
-        var launcher = new Button
+        _launcherButton = new Button
         {
             Text = Localization.T("Seed Search"),
             TooltipText = Localization.T("Open the seed search board"),
             FocusMode = Control.FocusModeEnum.All,
             Size = new Vector2(170, 48)
         };
-        launcher.SetAnchorsPreset(Control.LayoutPreset.BottomRight);
-        launcher.Position = new Vector2(-190, -70);
-        launcher.AddThemeStyleboxOverride("normal", MakeStyle(SurfaceRaised, Border));
-        launcher.AddThemeStyleboxOverride("hover", MakeStyle(AccentDark, Accent));
-        launcher.AddThemeColorOverride("font_color", Text);
-        launcher.Pressed += () => _backdrop.Visible = true;
-        _shell.AddChild(launcher);
+        _launcherButton.SetAnchorsPreset(Control.LayoutPreset.BottomRight);
+        _launcherButton.Position = new Vector2(-190, -70);
+        _launcherButton.AddThemeStyleboxOverride("normal", MakeStyle(SurfaceRaised, Border));
+        _launcherButton.AddThemeStyleboxOverride("hover", MakeStyle(AccentDark, Accent));
+        _launcherButton.AddThemeColorOverride("font_color", Text);
+        _launcherButton.Pressed += () => _backdrop.Visible = true;
+        _shell.AddChild(_launcherButton);
     }
 
     private void BuildPages()
@@ -192,48 +201,48 @@ public partial class SeedSearchOverlay : CanvasLayer
         margin.AddThemeConstantOverride("margin_bottom", 20);
         panel.AddChild(margin);
 
-        var page = new VBoxContainer();
-        page.AddThemeConstantOverride("separation", 12);
-        margin.AddChild(page);
+        _pageContent = new VBoxContainer();
+        _pageContent.AddThemeConstantOverride("separation", 12);
+        margin.AddChild(_pageContent);
 
         var header = new HBoxContainer();
         header.AddThemeConstantOverride("separation", 10);
-        page.AddChild(header);
-        var title = MakeLabel("Search TheSpire", 26, Text);
-        title.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
-        header.AddChild(title);
-        var beta = MakeLabel("v0.110.1", 13, MutedText);
-        beta.VerticalAlignment = VerticalAlignment.Center;
-        header.AddChild(beta);
-        var languageButton = MakeButton(
-            Localization.IsChinese ? "中文" : "English",
+        _pageContent.AddChild(header);
+        _titleLabel = MakeLabel("Search TheSpire", 26, Text);
+        _titleLabel.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
+        header.AddChild(_titleLabel);
+        _betaLabel = MakeLabel($"v{SeedSearchEngine.PinnedGameApiVersion}", 13, MutedText);
+        _betaLabel.VerticalAlignment = VerticalAlignment.Center;
+        header.AddChild(_betaLabel);
+        _languageButton = MakeButton(
+            Localization.IsChinese ? "English" : "中文",
             "Switch language",
             86);
-        languageButton.Pressed += ToggleLanguage;
-        header.AddChild(languageButton);
-        var closeButton = MakeButton("×", "Close", 40);
-        closeButton.Pressed += () => _backdrop.Visible = false;
-        header.AddChild(closeButton);
+        _languageButton.Pressed += ToggleLanguage;
+        header.AddChild(_languageButton);
+        _closeButton = MakeButton("×", "Close", 40);
+        _closeButton.Pressed += () => _backdrop.Visible = false;
+        header.AddChild(_closeButton);
 
         var tabs = new HBoxContainer();
         tabs.AddThemeConstantOverride("separation", 8);
-        page.AddChild(tabs);
-        var boardButton = MakeButton("Board", "Show search board", 100);
-        var popularButton = MakeButton("Popular", "Show popular searches", 100);
-        var savedButton = MakeButton("Saved", "Show saved searches", 100);
-        boardButton.Pressed += ShowBoard;
-        popularButton.Pressed += ShowPopular;
-        savedButton.Pressed += ShowSaved;
-        tabs.AddChild(boardButton);
-        tabs.AddChild(popularButton);
-        tabs.AddChild(savedButton);
+        _pageContent.AddChild(tabs);
+        _boardTabButton = MakeButton("Board", "Show search board", 100);
+        _popularTabButton = MakeButton("Popular", "Show popular searches", 100);
+        _savedTabButton = MakeButton("Saved", "Show saved searches", 100);
+        _boardTabButton.Pressed += ShowBoard;
+        _popularTabButton.Pressed += ShowPopular;
+        _savedTabButton.Pressed += ShowSaved;
+        tabs.AddChild(_boardTabButton);
+        tabs.AddChild(_popularTabButton);
+        tabs.AddChild(_savedTabButton);
 
         _boardPage = BuildBoardPage();
         _popularPage = BuildPopularPage();
         _savedPage = BuildSavedPage();
-        page.AddChild(_boardPage);
-        page.AddChild(_popularPage);
-        page.AddChild(_savedPage);
+        _pageContent.AddChild(_boardPage);
+        _pageContent.AddChild(_popularPage);
+        _pageContent.AddChild(_savedPage);
 
         // The picker is a sibling of the page/backdrop, so it can temporarily
         // own input without changing the shell's pass-through policy.
@@ -243,36 +252,98 @@ public partial class SeedSearchOverlay : CanvasLayer
 
     private void ToggleLanguage()
     {
+        var wasSearching = _searchTask != null;
         if (_searchTask != null)
         {
             CancelSearch();
             _searchCancellation?.Dispose();
             _searchCancellation = null;
             _searchTask = null;
+            RestoreSearchUi();
         }
 
-        var board = _boardState;
+        var query = ReadQuery();
         var spoilers = _showSpoilers;
-        Localization.ToggleLanguage();
+        var inspectInput = _inspectInput.Text;
+        var wasBoard = _boardPage.Visible;
+        var wasPopular = _popularPage.Visible;
+        var lastQuery = _lastQuery;
+        var lastResults = _lastResults;
 
-        foreach (var child in _shell.GetChildren().ToArray())
+        Localization.ToggleLanguage();
+        UpdateHeaderCopy();
+        _pickerDialog.Close();
+        _shell.RemoveChild(_pickerDialog);
+        _pickerDialog.QueueFree();
+
+        // Keep the emitting button and header alive; only rebuild the page contents.
+        foreach (var oldPage in new[] { _boardPage, _popularPage, _savedPage })
         {
-            _shell.RemoveChild(child);
-            child.QueueFree();
+            _pageContent.RemoveChild(oldPage);
+            oldPage.QueueFree();
         }
 
-        BuildLauncher();
-        BuildPages();
-        _boardState = board;
+        _boardPage = BuildBoardPage();
+        _popularPage = BuildPopularPage();
+        _savedPage = BuildSavedPage();
+        _pageContent.AddChild(_boardPage);
+        _pageContent.AddChild(_popularPage);
+        _pageContent.AddChild(_savedPage);
+
+        _pickerDialog = new SearchTheSpirePickerDialog { Name = "SearchTheSpirePicker" };
+        _shell.AddChild(_pickerDialog);
+
         _showSpoilers = spoilers;
-        _lastQuery = null;
-        _lastResults = Array.Empty<SeedMatch>();
+        _spoilerButton.Text = Localization.T(_showSpoilers ? "hide spoilers" : "show all spoilers");
+        _inspectInput.Text = inspectInput;
+        RestoreQueryControls(query);
+        _lastQuery = lastQuery;
+        _lastResults = lastResults;
+        if (!wasSearching && lastQuery != null)
+        {
+            ApplyResults(lastResults);
+        }
+
         RefreshNeowInputText();
         RefreshNeowDetails();
         RefreshAdvancedDetails();
         RefreshCharacterPreview();
         RebuildSavedList();
-        ShowBoard();
+        RebuildPopularList();
+        if (wasBoard)
+        {
+            ShowBoard();
+        }
+        else if (wasPopular)
+        {
+            ShowPopular();
+        }
+        else
+        {
+            ShowSaved();
+        }
+    }
+
+    private void UpdateHeaderCopy()
+    {
+        if (_launcherButton == null)
+        {
+            return;
+        }
+
+        _launcherButton.Text = Localization.T("Seed Search");
+        _launcherButton.TooltipText = Localization.T("Open the seed search board");
+        _titleLabel.Text = Localization.T("Search TheSpire");
+        _betaLabel.Text = Localization.T($"v{SeedSearchEngine.PinnedGameApiVersion}");
+        _languageButton.Text = Localization.T(Localization.IsChinese ? "English" : "中文");
+        _languageButton.TooltipText = Localization.T("Switch language");
+        _closeButton.TooltipText = Localization.T("Close");
+        _boardTabButton.Text = Localization.T("Board");
+        _boardTabButton.TooltipText = Localization.T("Show search board");
+        _popularTabButton.Text = Localization.T("Popular");
+        _popularTabButton.TooltipText = Localization.T("Show popular searches");
+        _savedTabButton.Text = Localization.T("Saved");
+        _savedTabButton.TooltipText = Localization.T("Show saved searches");
     }
 
     private Control BuildBoardPage()
@@ -285,7 +356,7 @@ public partial class SeedSearchOverlay : CanvasLayer
         searchBar.AddThemeConstantOverride("separation", 8);
         page.AddChild(searchBar);
         searchBar.AddChild(MakeLabel("searching", 14, MutedText));
-        _branchInput = MakeOption(new[] { "public beta · v0.110.1" }, 0, 240);
+        _branchInput = MakeOption(new[] { $"public beta · v{SeedSearchEngine.PinnedGameApiVersion}" }, 0, 240);
         searchBar.AddChild(_branchInput);
         var shareButton = MakeButton("share", "Copy a shareable search spec", 92);
         shareButton.Pressed += ShareSearch;
@@ -1223,8 +1294,9 @@ public partial class SeedSearchOverlay : CanvasLayer
         _branchInput.Selected = 0;
         _characterInput.Selected = Math.Clamp((int)query.Character, 0, _characterInput.ItemCount - 1);
         RefreshCharacterPreview();
+        var restoreAscension = Math.Clamp(query.Ascension, 0, SearchTheSpireBoardState.MaxAscension);
         _ascensionInput.Selected = Math.Clamp(
-            Array.IndexOf(SearchTheSpireCatalog.AscensionValues, query.Ascension),
+            Array.IndexOf(SearchTheSpireCatalog.AscensionValues, restoreAscension),
             0,
             _ascensionInput.ItemCount - 1);
         _runModeInput.Selected = Math.Clamp((int)query.RunMode, 0, _runModeInput.ItemCount - 1);
@@ -1280,7 +1352,7 @@ public partial class SeedSearchOverlay : CanvasLayer
         var stopAfter = new[] { 5, 10, 20, 50 }[_stopAfterInput.Selected];
         return new SeedQuery(
             Branch: ReadBranch(),
-            GameApiVersion: "0.110.1",
+            GameApiVersion: SeedSearchEngine.PinnedGameApiVersion,
             Character: (RunCharacter)_characterInput.Selected,
             Ascension: SearchTheSpireCatalog.AscensionValues[
                 Math.Clamp(_ascensionInput.Selected, 0, SearchTheSpireCatalog.AscensionValues.Length - 1)],

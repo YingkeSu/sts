@@ -39,6 +39,13 @@ public sealed record SearchTheSpireSlotView(
 /// </summary>
 public sealed class SearchTheSpireBoardState
 {
+    /// <summary>
+    /// SearchTheSpire's board surface is none + A1..A10. This is the single
+    /// source of truth for the model clamp, engine context parsing and the UI
+    /// dropdown; do not add a generic-looking STS2 A0-A20 range again.
+    /// </summary>
+    public const int MaxAscension = 10;
+
     private readonly IReadOnlyDictionary<string, string?> _values;
 
     private SearchTheSpireBoardState(
@@ -47,7 +54,7 @@ public sealed class SearchTheSpireBoardState
         IReadOnlyDictionary<string, string?> values)
     {
         Character = character;
-        Ascension = Math.Clamp(ascension, 0, 20);
+        Ascension = Math.Clamp(ascension, 0, MaxAscension);
         _values = values;
     }
 
@@ -594,7 +601,10 @@ public static class SearchTheSpirePicker
 
 public static class SearchTheSpireCatalog
 {
-    public static readonly int[] AscensionValues = { 0, 5, 10, 15, 20 };
+    public const int MaxAscension = SearchTheSpireBoardState.MaxAscension;
+
+    public static readonly int[] AscensionValues =
+        Enumerable.Range(0, MaxAscension + 1).ToArray();
 
     private static readonly IReadOnlyDictionary<string, string> DisplayNames =
         new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
@@ -1265,26 +1275,40 @@ public static class SearchTheSpireCatalog
 
     private static IReadOnlyList<SearchTheSpireOption> CardOptions(SearchTheSpireBoardState state, string slotId)
     {
+        var colorlessSamplePool = slotId.Contains("Paperweight", StringComparison.OrdinalIgnoreCase);
         var otherCharacterPool = slotId.Contains("Kaleido", StringComparison.OrdinalIgnoreCase);
+        var rareOnlyPool = slotId.Contains("Tablet", StringComparison.OrdinalIgnoreCase) ||
+                           slotId.Contains("Arcane", StringComparison.OrdinalIgnoreCase);
         var characters = state.Character == RunCharacter.Any
             ? Array.Empty<RunCharacter>()
             : new[] { state.Character };
         var ids = characters.Length == 0
-            ? Cards.Select(option => option.Id)
+            ? colorlessSamplePool
+                ? Cards.Select(option => option.Id)
+                : SearchTheSpirePoolData.CardPools.Values.SelectMany(cards => cards)
             : characters.SelectMany(character =>
             {
-                var pool = SearchTheSpirePoolData.CardPools.TryGetValue(character, out var values)
-                    ? values
-                    : Array.Empty<string>();
-                var includesLegacy = pool.Concat(Cards.Select(option => option.Id));
+                if (colorlessSamplePool)
+                {
+                    var legacyPool = SearchTheSpirePoolData.CardPools.TryGetValue(character, out var legacyValues)
+                        ? legacyValues
+                        : Array.Empty<string>();
+                    return legacyPool.Concat(Cards.Select(option => option.Id));
+                }
+
                 if (otherCharacterPool)
                 {
-                    includesLegacy = SearchTheSpirePoolData.CardPools
+                    return SearchTheSpirePoolData.CardPools
                         .Where(pair => pair.Key != character)
                         .SelectMany(pair => pair.Value);
                 }
 
-                return includesLegacy;
+                var versionedPool = SearchTheSpirePoolData.CardPools.TryGetValue(character, out var versionedValues)
+                    ? versionedValues
+                    : Array.Empty<string>();
+                return rareOnlyPool && SearchTheSpirePoolData.RareCards.TryGetValue(character, out var rareValues)
+                    ? rareValues
+                    : versionedPool;
             });
 
         var selectedCharacter = state.Character == RunCharacter.Any

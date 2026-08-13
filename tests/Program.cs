@@ -39,13 +39,18 @@ if (SeedSearchEngine.CreateSeed(SeedBranch.PublicBeta, 1) != "100000000000" ||
     throw new InvalidOperationException("Beta seed codec does not match SearchTheSpire display_for_index.");
 }
 
+// [issue-3] SearchTheSpire's board exposes none + A1..A10 only. The model,
+// engine context parsing and UI all share MaxAscension so a generic-looking
+// STS2 A0-A20 range cannot regress again (it already did twice).
 var ascensionValues = SearchTheSpireCatalog.AscensionValues;
-if (!ascensionValues.SequenceEqual(new[] { 0, 5, 10, 15, 20 }) ||
-    SearchTheSpireBoardState.Empty.WithAscension(15).Ascension != 15 ||
-    SearchTheSpireBoardState.Empty.WithAscension(20).Ascension != 20 ||
-    SearchTheSpireBoardState.Empty.WithAscension(25).Ascension != 20)
+if (!ascensionValues.SequenceEqual(Enumerable.Range(0, SearchTheSpireBoardState.MaxAscension + 1)) ||
+    SearchTheSpireCatalog.MaxAscension != SearchTheSpireBoardState.MaxAscension ||
+    ascensionValues.Any(value => value > SearchTheSpireBoardState.MaxAscension) ||
+    SearchTheSpireBoardState.Empty.WithAscension(15).Ascension != SearchTheSpireBoardState.MaxAscension ||
+    SearchTheSpireBoardState.Empty.WithAscension(25).Ascension != SearchTheSpireBoardState.MaxAscension ||
+    engine.Inspect("000000000000", SeedBranch.PublicBeta, $"{SeedSearchEngine.PinnedGameApiVersion}|Ironclad|A20|Plain|").Ascension != SearchTheSpireBoardState.MaxAscension)
 {
-    throw new InvalidOperationException("Ascension options regressed below A15/A20 or no longer clamp at A20.");
+    throw new InvalidOperationException("Ascension surface regressed from SearchTheSpire's A0-A10 range or no longer clamps at A10.");
 }
 
 if (OptionArtRouter.For(new SearchTheSpireOption("bash", "Bash", "Ironclad cards · rare")) != OptionArtKind.Card ||
@@ -60,11 +65,11 @@ if (OptionArtRouter.For(new SearchTheSpireOption("bash", "Bash", "Ironclad cards
     throw new InvalidOperationException("Picker art routing does not distinguish cards, relics and bosses.");
 }
 
-Console.WriteLine("Ascension A0-A20 and picker art routing checks passed.");
+Console.WriteLine("Ascension A0-A10 and picker art routing checks passed.");
 
 var query = new SeedQuery(
     SeedBranch.PublicBeta,
-    GameApiVersion: "0.110.1",
+    GameApiVersion: SeedSearchEngine.PinnedGameApiVersion,
     Character: RunCharacter.Any,
     Ascension: 0,
     RunMode: RunMode.Plain,
@@ -85,6 +90,41 @@ if (matches.Count > query.StopAfter || matches.Any(match => match.Snapshot.Elite
 }
 
 Console.WriteLine($"Seed search core checks passed: {matches.Count} matches.");
+
+// [issue-5] Old Chinese-UI saves can still carry the localized display text
+// (`任意`/`任何`) in AncientFilter/BossFilter. They must behave exactly like
+// the canonical `Any` token instead of filtering names literally to zero.
+if (matches.Count == 0)
+{
+    throw new InvalidOperationException("The canonical any/any broad query unexpectedly returned no seed.");
+}
+
+var chineseLegacyMatches = engine.Search(
+    query with { AncientFilter = "任意", BossFilter = "任何" },
+    CancellationToken.None);
+if (chineseLegacyMatches.Count == 0 || chineseLegacyMatches.Count != matches.Count)
+{
+    throw new InvalidOperationException(
+        $"A saved Chinese `任意/任何` query returned {chineseLegacyMatches.Count} results; " +
+        $"expected {matches.Count} like canonical `Any/Any`.");
+}
+
+Console.WriteLine("Chinese-era `任意/任何` saved-filter compatibility checks passed.");
+
+// [issue-5] The manifest gate and the engine pin must stay in lockstep so a
+// future game update cannot silently drift the search surface.
+var repoRoot = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+var manifestVersion = JsonDocument.Parse(File.ReadAllText(Path.Combine(repoRoot, "SeedSearchPrototype.json")))
+    .RootElement.GetProperty("min_game_version")
+    .GetString();
+if (manifestVersion != SeedSearchEngine.PinnedGameApiVersion)
+{
+    throw new InvalidOperationException(
+        $"SeedSearchPrototype.json pins min_game_version `{manifestVersion}`, " +
+        $"but the engine pins `{SeedSearchEngine.PinnedGameApiVersion}`.");
+}
+
+Console.WriteLine($"Version pin consistency checks passed ({SeedSearchEngine.PinnedGameApiVersion}).");
 
 var betaNeowChecks = new Dictionary<string, (string Cursed, string BonusA, string BonusB, string? GrantA, string? GrantB)>
 {
@@ -339,7 +379,7 @@ if (eventOptions.Any(option => option.Id == "aromaofchaos") ||
 
 Console.WriteLine("SearchTheSpire dependency-gating checks passed.");
 
-var engineDetail = engine.Inspect("000000000000", SeedBranch.PublicBeta, "0.110.1|Ironclad|A0|Plain|");
+var engineDetail = engine.Inspect("000000000000", SeedBranch.PublicBeta, $"{SeedSearchEngine.PinnedGameApiVersion}|Ironclad|A0|Plain|");
 var rewardOne = engineDetail.DetailSpec
     .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
     .First(fragment => fragment.StartsWith("reward1_card=", StringComparison.Ordinal))
@@ -376,7 +416,7 @@ var ironcladCards = SearchTheSpireBoardState.Empty
     .OptionsFor("rewardPick1");
 if (ironcladCards.Count < 80 ||
     !ironcladCards.Any(option => option.Id == "aggression" && option.Rarity == "Rare") ||
-    !ironcladCards.Any(option => option.Id == "bash"))
+    ironcladCards.Any(option => option.Id is "bash" or "strike" or "defend" or "neutralize"))
 {
     throw new InvalidOperationException("The character card picker did not use the versioned Ironclad pool.");
 }
@@ -389,6 +429,54 @@ if (!sharedShop.Any(option => option.Id == "bread" && option.Section == "any cha
 }
 
 Console.WriteLine("SearchTheSpire pool-section checks passed.");
+
+// [issue-2] Neow card slots must only expose their real pools: Lost Coffer,
+// New Leaf and Leafy Poultice roll from the versioned character pool, while
+// Hefty Tablet and Arcane Scroll only ever offer that character's Rare cards.
+var cofferState = SearchTheSpireBoardState.Empty
+    .WithCharacter(RunCharacter.Ironclad)
+    .Select("neowOffer", "lostcoffer");
+var cofferOptions = cofferState.OptionsFor("cofferCard");
+if (!cofferOptions.Any(option => option.Id == "aggression") ||
+    cofferOptions.Any(option => option.Id is "strike" or "defend" or "bash" or "neutralize"))
+{
+    throw new InvalidOperationException("Lost Coffer offered impossible basic or cross-character cards.");
+}
+
+var tabletOptions = SearchTheSpireBoardState.Empty
+    .WithCharacter(RunCharacter.Ironclad)
+    .Select("neowOffer", "heftytablet")
+    .OptionsFor("tabletCard");
+var arcaneOptions = SearchTheSpireBoardState.Empty
+    .WithCharacter(RunCharacter.Ironclad)
+    .Select("neowOffer", "arcanescroll")
+    .OptionsFor("arcaneCard");
+if (!tabletOptions.Any(option => option.Id == "aggression") ||
+    !tabletOptions.Any(option => option.Id == "darkembrace") ||
+    tabletOptions.Any(option => option.Rarity != "Rare") ||
+    !arcaneOptions.Any(option => option.Id == "aggression") ||
+    arcaneOptions.Any(option => option.Rarity != "Rare"))
+{
+    throw new InvalidOperationException("Hefty Tablet / Arcane Scroll offered cards outside the character's Rare pool.");
+}
+
+var newleafOptions = SearchTheSpireBoardState.Empty
+    .WithCharacter(RunCharacter.Ironclad)
+    .Select("neowOffer", "newleaf")
+    .OptionsFor("newleafCard");
+var poulticeOptions = SearchTheSpireBoardState.Empty
+    .WithCharacter(RunCharacter.Ironclad)
+    .Select("neowOffer", "leafypoultice")
+    .OptionsFor("poulticeCard1");
+if (!newleafOptions.Any(option => option.Id == "aggression") ||
+    newleafOptions.Any(option => option.Id is "strike" or "defend" or "bash" or "neutralize") ||
+    !poulticeOptions.Any(option => option.Id == "aggression") ||
+    poulticeOptions.Any(option => option.Id is "strike" or "defend" or "bash" or "neutralize"))
+{
+    throw new InvalidOperationException("New Leaf / Leafy Poultice offered impossible basic or cross-character cards.");
+}
+
+Console.WriteLine("SearchTheSpire Neow card-pool checks passed.");
 
 var characterSwitch = SearchTheSpireBoardState.Empty
     .WithCharacter(RunCharacter.Ironclad)
@@ -481,7 +569,7 @@ if (!silentKaleidoSpec.Contains("bonus=kaleidoscope", StringComparison.Ordinal) 
     throw new InvalidOperationException("Silent Kaleidoscope cards did not compile to the SearchTheSpire spec.");
 }
 
-var kaleidoFixture = engine.Inspect("PT0000000000", SeedBranch.PublicBeta, "0.110.1|Silent|A10|Plain|");
+var kaleidoFixture = engine.Inspect("PT0000000000", SeedBranch.PublicBeta, $"{SeedSearchEngine.PinnedGameApiVersion}|Silent|A10|Plain|");
 var kaleidoDetail = kaleidoFixture.DetailSpec
     .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
     .FirstOrDefault(fragment => fragment.StartsWith("kaleido_distinct=", StringComparison.Ordinal))?
@@ -495,7 +583,7 @@ if (kaleidoDetail == null ||
 
 var kaleidoQuery = new SeedQuery(
     SeedBranch.PublicBeta,
-    GameApiVersion: "0.110.1",
+    GameApiVersion: SeedSearchEngine.PinnedGameApiVersion,
     Character: RunCharacter.Silent,
     Ascension: 10,
     RunMode: RunMode.Plain,
@@ -534,7 +622,7 @@ if (kaleidoZeroMatches.Count == 0 ||
     throw new InvalidOperationException("A zero-offset Silent Kaleidoscope search returned no valid match.");
 }
 
-var kaleidoExact = engine.Inspect("00000001L0WX", SeedBranch.PublicBeta, "0.110.1|Silent|A10|Plain|");
+var kaleidoExact = engine.Inspect("00000001L0WX", SeedBranch.PublicBeta, $"{SeedSearchEngine.PinnedGameApiVersion}|Silent|A10|Plain|");
 if (!kaleidoExact.DetailSpec.Contains(
         "kaleido_distinct=glacier+countdown+bludgeon+orbit+gofortheeyes+dansemacabre",
         StringComparison.Ordinal))
@@ -562,7 +650,7 @@ var rarePackage = SearchTheSpireBoardState.Empty
 if (rarePackage.Selected("rewardWithin") != "2" ||
     !rarePackage.WithAscension(7).ToSpec().Contains("reward_within=3", StringComparison.Ordinal))
 {
-    throw new InvalidOperationException("Rare reward package floors did not follow v0.110.1 pity tables.");
+    throw new InvalidOperationException($"Rare reward package floors did not follow {SeedSearchEngine.PinnedGameApiVersion} pity tables.");
 }
 
 var bagPackage = SearchTheSpireBoardState.Empty
@@ -674,15 +762,112 @@ foreach (var row in parityRows)
 if (parityMismatches.Count > 0)
 {
     throw new InvalidOperationException(
-        $"SearchTheSpire v0.110.1 layout parity failed for {parityMismatches.Count}/{parityRows.Count} seeds:\n" +
+        $"SearchTheSpire {SeedSearchEngine.PinnedGameApiVersion} layout parity failed for {parityMismatches.Count}/{parityRows.Count} seeds:\n" +
         string.Join("\n", parityMismatches.Take(8)));
 }
 
 Console.WriteLine("SearchTheSpire public-beta layout parity checks passed.");
 
+// [issue-1] Parallel search must keep the same observable semantics as the
+// sequential reference engine: identical seed sequence, exact StopAfter cap,
+// monotonic progress and cancellation handling.
+var issue1Query = new SeedQuery(
+    SeedBranch.PublicBeta,
+    GameApiVersion: SeedSearchEngine.PinnedGameApiVersion,
+    Character: RunCharacter.Any,
+    Ascension: 0,
+    RunMode: RunMode.Plain,
+    StopAfter: 5,
+    StartOffset: 1000,
+    MaxCandidates: 20_000,
+    MinimumElites: 2,
+    MinimumShops: 0,
+    MinimumRestSites: 0,
+    NeowFilter: NeowFilter.HasBlessing,
+    AncientFilter: "Any",
+    BossFilter: "Any");
+var sequentialReference = SequentialSearchReference(engine, issue1Query, CancellationToken.None);
+var parallelMatches = engine.Search(issue1Query, CancellationToken.None);
+if (!sequentialReference.Select(match => match.Seed).SequenceEqual(parallelMatches.Select(match => match.Seed)) ||
+    sequentialReference.Count != parallelMatches.Count)
+{
+    throw new InvalidOperationException(
+        $"Parallel seed search diverged from the sequential reference: " +
+        $"sequential={string.Join(",", sequentialReference.Select(match => match.Seed))}, " +
+        $"parallel={string.Join(",", parallelMatches.Select(match => match.Seed))}");
+}
+
+if (parallelMatches.Count != issue1Query.StopAfter ||
+    parallelMatches.Any(match => match.Snapshot.EliteCount < 2 || !match.Snapshot.HasBlessing))
+{
+    throw new InvalidOperationException("Parallel seed search did not honor StopAfter with filtered matches.");
+}
+
+var progressSnapshots = new List<SearchProgress>();
+var progressMatches = engine.Search(
+    issue1Query with { MaxCandidates = 20_000 },
+    CancellationToken.None,
+    progressSnapshots.Add);
+long lastChecked = -1;
+int lastMatchCount = -1;
+var progressMonotonic = true;
+foreach (var snapshot in progressSnapshots)
+{
+    progressMonotonic &= snapshot.Checked >= lastChecked && snapshot.MatchCount >= lastMatchCount;
+    lastChecked = snapshot.Checked;
+    lastMatchCount = snapshot.MatchCount;
+}
+
+if (progressSnapshots.Count == 0 ||
+    !progressMonotonic ||
+    progressSnapshots[^1].MatchCount != progressMatches.Count ||
+    progressSnapshots[^1].Checked <= 0 ||
+    progressSnapshots[^1].Checked > issue1Query.MaxCandidates)
+{
+    throw new InvalidOperationException("Parallel seed search progress is not monotonic or its final report is wrong.");
+}
+
+var fullScanProgress = new List<SearchProgress>();
+var fullScanMatches = engine.Search(
+    issue1Query with
+    {
+        StopAfter = 1000,
+        MinimumElites = 0,
+        MinimumShops = 0,
+        MinimumRestSites = 0,
+        NeowFilter = NeowFilter.Any,
+        HiddenSpec = "boss1=__never__",
+    },
+    CancellationToken.None,
+    fullScanProgress.Add);
+if (fullScanProgress.Count == 0 ||
+    fullScanProgress[^1].Checked != issue1Query.MaxCandidates ||
+    fullScanMatches.Count != 0)
+{
+    throw new InvalidOperationException("Parallel seed search progress did not report a full-budget scan.");
+}
+
+var canceledToken = new CancellationToken(canceled: true);
+var canceled = false;
+try
+{
+    engine.Search(issue1Query with { MaxCandidates = 1 }, canceledToken);
+}
+catch (OperationCanceledException)
+{
+    canceled = true;
+}
+
+if (!canceled)
+{
+    throw new InvalidOperationException("Parallel seed search did not honor cancellation.");
+}
+
+Console.WriteLine("issue-1 parallel search parity/StopAfter/progress checks passed.");
+
 var benchBase = new SeedQuery(
     SeedBranch.PublicBeta,
-    GameApiVersion: "0.110.1",
+    GameApiVersion: SeedSearchEngine.PinnedGameApiVersion,
     Character: RunCharacter.Any,
     Ascension: 0,
     RunMode: RunMode.Plain,
@@ -706,6 +891,36 @@ foreach (var budget in new long[] { 100_000L, 1_000_000L })
 
 static string Norm(string value) =>
     new(value.Where(char.IsLetterOrDigit).Select(char.ToLowerInvariant).ToArray());
+
+static IReadOnlyList<SeedMatch> SequentialSearchReference(
+    SeedSearchEngine engine,
+    SeedQuery query,
+    CancellationToken cancellationToken)
+{
+    var matches = new List<SeedMatch>();
+    var stopAfter = Math.Clamp(query.StopAfter, 1, 1000);
+    var budget = Math.Max(1, query.MaxCandidates);
+    var start = Math.Max(0, query.StartOffset);
+    var context = $"{query.GameApiVersion}|{query.Character}|A{query.Ascension}|{query.RunMode}|{query.HiddenSpec}";
+
+    for (long offset = 0; offset < budget && matches.Count < stopAfter; offset++)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var seed = SeedSearchEngine.CreateSeed(query.Branch, start + offset);
+        var snapshot = engine.Inspect(seed, query.Branch, context);
+        if (snapshot.EliteCount >= query.MinimumElites &&
+            snapshot.ShopCount >= query.MinimumShops &&
+            snapshot.RestSiteCount >= query.MinimumRestSites &&
+            (query.NeowFilter != NeowFilter.HasBlessing || snapshot.HasBlessing) &&
+            (query.NeowFilter != NeowFilter.HasCurse || snapshot.HasCurse))
+        {
+            matches.Add(new SeedMatch(seed, snapshot));
+        }
+    }
+
+    return matches;
+}
 
 internal sealed record LayoutParityRow(
     [property: JsonPropertyName("seed")] string Seed,

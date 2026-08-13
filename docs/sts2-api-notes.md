@@ -189,3 +189,16 @@
 社区规范、工程模板、基础库与真实类型清单见
 [`community-api-research.md`](community-api-research.md)；与 SearchTheSpire
 逐元素对照见 [`searchthespire-gap-report.md`](searchthespire-gap-report.md)。
+
+## SearchTheSpire 进阶边界（防第三次回归）
+
+- SearchTheSpire board 的进阶表面是 `none` + A1..A10；本 Mod 的模型、引擎
+  上下文解析、UI 下拉与恢复路径统一以
+  `SearchTheSpireBoardState.MaxAscension`（10）为上限，
+  `SearchTheSpireCatalog.MaxAscension` 与 `AscensionValues` 从同一常量派生。
+- 根因（已发生两次）：使用了“看起来像 STS2”的通用 A0-A20 范围；修复只存在于
+  云测试分支/技能文档，master 的测试把错误范围固化，且缺少集中常量。
+- 防复发：`tests/Program.cs` 的 `[issue-3]` 回归断言要求
+  `AscensionValues == 0..10`、模型与引擎 clamp 到 A10，并断言 catalog 与
+  board state 引用同一 `MaxAscension`；UI 从 `AscensionValues` 渲染，不再
+  出现 A15/A20 文案。

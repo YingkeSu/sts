@@ -11,6 +11,13 @@ namespace SeedSearchPrototype;
 /// </summary>
 public sealed class SeedSearchEngine
 {
+    /// <summary>
+    /// Single source of truth for the pinned public-beta game version. The
+    /// manifest, UI labels and tests assert against this constant so a future
+    /// game update cannot silently drift the search surface.
+    /// </summary>
+    public const string PinnedGameApiVersion = "0.110.1";
+
     private const string BetaAlphabet = "0123456789ABCDEFGHJKLMNPQRSTUVWXYZ";
     private const int BetaSeedLength = 12;
     private static readonly string[] CursedOffers =
@@ -44,13 +51,6 @@ public sealed class SeedSearchEngine
         "seretalon", "distinguishedcape", "choicesparadox", "musicbox", "lordsparasol", "jeweledmask",
         "blessedantler", "brilliantscarf", "delicatefrond", "diamonddiadem", "furcoat", "glitter",
         "jewelrybox", "loomingfruit", "signetring",
-    };
-    private static readonly string[] Cards =
-    {
-        "strike", "defend", "bash", "ironwave", "neutralize", "backflip", "survivor", "seer",
-        "orbit", "dismantle", "zap", "deadly_disease", "soul_fire", "colorless_insight", "dominate",
-        "tearasunder", "pyre", "bludgeon", "pommelstrike", "automation", "equilibrium", "thinkingahead",
-        "darkshackles",
     };
     private static readonly string[] RelicIds =
     {
@@ -184,32 +184,93 @@ public sealed class SeedSearchEngine
         CancellationToken cancellationToken,
         Action<SearchProgress>? progress = null)
     {
-        var matches = new List<SeedMatch>();
+        const long chunkSize = 1024;
+
         var stopAfter = Math.Clamp(query.StopAfter, 1, 1000);
         var budget = Math.Max(1, query.MaxCandidates);
         var start = Math.Max(0, query.StartOffset);
+        var context = BuildContext(query);
+        var workerCount = Math.Max(1, Environment.ProcessorCount);
+        var totalChunks = (budget + chunkSize - 1) / chunkSize;
+        var results = new List<SeedMatch>();
+        var checkedTotal = 0L;
 
-        long checkedCount = 0;
-        for (long offset = 0; offset < budget && matches.Count < stopAfter; offset++)
+        // Search contiguous candidate blocks in parallel waves, then merge the
+        // blocks in chunk order. A block never needs more than stopAfter local
+        // matches, and the wave boundary gives deterministic early stopping
+        // without changing which matches are the first stopAfter by index.
+        for (long waveStart = 0; waveStart < totalChunks && results.Count < stopAfter; waveStart += workerCount)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var seed = SeedCodec.FromIndex(query.Branch, start + offset);
-            var snapshot = Inspect(seed, query.Branch, BuildContext(query));
-            checkedCount = offset + 1;
-            if (Matches(query, snapshot))
+            var waveEnd = Math.Min(totalChunks, waveStart + workerCount);
+            var waveLength = (int)(waveEnd - waveStart);
+            var waveMatches = new List<SeedMatch>[waveLength];
+            var waveChecked = new long[waveLength];
+
+            try
             {
-                matches.Add(new SeedMatch(seed, snapshot));
+                Parallel.For(
+                    waveStart,
+                    waveEnd,
+                    new ParallelOptions
+                    {
+                        CancellationToken = cancellationToken,
+                        MaxDegreeOfParallelism = workerCount,
+                    },
+                    chunkIndex =>
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+
+                        var local = new List<SeedMatch>();
+                        var offsetStart = chunkIndex * chunkSize;
+                        var offsetEnd = Math.Min(budget, offsetStart + chunkSize);
+                        long localChecked = 0;
+                        for (var offset = offsetStart; offset < offsetEnd; offset++)
+                        {
+                            cancellationToken.ThrowIfCancellationRequested();
+
+                            var seed = SeedCodec.FromIndex(query.Branch, start + offset);
+                            var snapshot = Inspect(seed, query.Branch, context);
+                            localChecked = offset - offsetStart + 1;
+                            if (Matches(query, snapshot))
+                            {
+                                local.Add(new SeedMatch(seed, snapshot));
+                                if (local.Count >= stopAfter)
+                                {
+                                    break;
+                                }
+                            }
+                        }
+
+                        waveMatches[chunkIndex - waveStart] = local;
+                        waveChecked[chunkIndex - waveStart] = localChecked;
+                    });
+            }
+            catch (AggregateException aggregate)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                throw aggregate.InnerExceptions.Count == 1
+                    ? aggregate.InnerExceptions[0]
+                    : aggregate;
             }
 
-            if (offset % 512 == 0 || matches.Count == stopAfter)
+            for (var chunk = 0; chunk < waveLength; chunk++)
             {
-                progress?.Invoke(new SearchProgress(offset + 1, budget, matches.Count));
+                checkedTotal += waveChecked[chunk];
+                results.AddRange(waveMatches[chunk]);
             }
+
+            progress?.Invoke(new SearchProgress(checkedTotal, budget, Math.Min(results.Count, stopAfter)));
         }
 
-        progress?.Invoke(new SearchProgress(checkedCount, budget, matches.Count));
-        return matches;
+        if (results.Count > stopAfter)
+        {
+            results.RemoveRange(stopAfter, results.Count - stopAfter);
+        }
+
+        progress?.Invoke(new SearchProgress(checkedTotal, budget, results.Count));
+        return results;
     }
 
     public SeedSnapshot Inspect(string rawSeed, SeedBranch branch, string context = "")
@@ -350,6 +411,11 @@ public sealed class SeedSearchEngine
         var potionPool = PotionPool(character);
         var shopRelicPool = ShopRelicPool(character);
         var capsuleRelicPool = CapsuleRelicPool(character);
+        var cardDetailPools = new CardDetailPools(
+            Rollable: cardPool,
+            Rare: RareCardPool(character),
+            CommonUncommon: CommonUncommonCardPool(character),
+            OtherCharacters: OtherCharacterCardPool(character));
         var rewardCardValues = Enumerable.Range(0, 3)
             .Select(_ => cardPool[Sts2ReferenceRng.NextInt(ref layoutRng, cardPool.Count)])
             .ToArray();
@@ -376,7 +442,7 @@ public sealed class SeedSearchEngine
             grantA,
             grantB,
             rewardCardValues,
-            cardPool,
+            cardDetailPools,
             potionPool,
             capsuleRelicPool,
             ref neowRng,
@@ -557,13 +623,80 @@ public sealed class SeedSearchEngine
         return pool.Take(2).ToList();
     }
 
-    private static IReadOnlyList<string> CardPool(RunCharacter character)
+    private static IReadOnlyDictionary<RunCharacter, IReadOnlyList<string>> BuildPoolCache(
+        Func<RunCharacter, IReadOnlyList<string>> builder) =>
+        Enum.GetValues<RunCharacter>().ToDictionary(character => character, builder);
+
+    // The versioned pools are immutable for a pinned game version. Building
+    // them once per character instead of once per candidate removes the
+    // dominant per-seed allocation from the hot search loop.
+    private static readonly IReadOnlyDictionary<RunCharacter, IReadOnlyList<string>> CardPoolCache =
+        BuildPoolCache(BuildCardPool);
+    private static readonly IReadOnlyDictionary<RunCharacter, IReadOnlyList<string>> RareCardPoolCache =
+        BuildPoolCache(BuildRareCardPool);
+    private static readonly IReadOnlyDictionary<RunCharacter, IReadOnlyList<string>> CommonUncommonCardPoolCache =
+        BuildPoolCache(BuildCommonUncommonCardPool);
+    private static readonly IReadOnlyDictionary<RunCharacter, IReadOnlyList<string>> OtherCharacterCardPoolCache =
+        BuildPoolCache(BuildOtherCharacterCardPool);
+    private static readonly IReadOnlyDictionary<RunCharacter, IReadOnlyList<string>> PotionPoolCache =
+        BuildPoolCache(BuildPotionPool);
+    private static readonly IReadOnlyDictionary<RunCharacter, IReadOnlyList<string>> ShopRelicPoolCache =
+        BuildPoolCache(BuildShopRelicPool);
+    private static readonly IReadOnlyDictionary<RunCharacter, IReadOnlyList<string>> CapsuleRelicPoolCache =
+        BuildPoolCache(BuildCapsuleRelicPool);
+
+    private static IReadOnlyList<string> CardPool(RunCharacter character) => CardPoolCache[character];
+
+    private static IReadOnlyList<string> RareCardPool(RunCharacter character) => RareCardPoolCache[character];
+
+    private static IReadOnlyList<string> CommonUncommonCardPool(RunCharacter character) =>
+        CommonUncommonCardPoolCache[character];
+
+    private static IReadOnlyList<string> OtherCharacterCardPool(RunCharacter character) =>
+        OtherCharacterCardPoolCache[character];
+
+    private static IReadOnlyList<string> PotionPool(RunCharacter character) => PotionPoolCache[character];
+
+    private static IReadOnlyList<string> ShopRelicPool(RunCharacter character) => ShopRelicPoolCache[character];
+
+    private static IReadOnlyList<string> CapsuleRelicPool(RunCharacter character) => CapsuleRelicPoolCache[character];
+
+    private static IReadOnlyList<string> BuildCardPool(RunCharacter character)
     {
         var versioned = character != RunCharacter.Any && SearchTheSpirePoolData.CardPools.TryGetValue(character, out var own)
             ? own
             : SearchTheSpirePoolData.CardPools.Values.SelectMany(values => values);
-        return versioned.Concat(Cards).Distinct(StringComparer.Ordinal).ToArray();
+        return versioned.Distinct(StringComparer.Ordinal).ToArray();
     }
+
+    private static IReadOnlyList<string> BuildRareCardPool(RunCharacter character) =>
+        character != RunCharacter.Any && SearchTheSpirePoolData.RareCards.TryGetValue(character, out var own)
+            ? own
+            : SearchTheSpirePoolData.RareCards.Values.SelectMany(values => values).Distinct(StringComparer.Ordinal).ToArray();
+
+    private static IReadOnlyList<string> BuildCommonUncommonCardPool(RunCharacter character)
+    {
+        var commons = character != RunCharacter.Any && SearchTheSpirePoolData.CommonCards.TryGetValue(character, out var ownCommons)
+            ? ownCommons
+            : SearchTheSpirePoolData.CommonCards.Values.SelectMany(values => values);
+        var uncommons = character != RunCharacter.Any && SearchTheSpirePoolData.UncommonCards.TryGetValue(character, out var ownUncommons)
+            ? ownUncommons
+            : SearchTheSpirePoolData.UncommonCards.Values.SelectMany(values => values);
+        return commons.Concat(uncommons).Distinct(StringComparer.Ordinal).ToArray();
+    }
+
+    private static IReadOnlyList<string> BuildOtherCharacterCardPool(RunCharacter character) =>
+        SearchTheSpirePoolData.CardPools
+            .Where(pair => character == RunCharacter.Any || pair.Key != character)
+            .SelectMany(pair => pair.Value)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+
+    private sealed record CardDetailPools(
+        IReadOnlyList<string> Rollable,
+        IReadOnlyList<string> Rare,
+        IReadOnlyList<string> CommonUncommon,
+        IReadOnlyList<string> OtherCharacters);
 
     private static string SimulateKaleidoCards(
         ulong baseSeed,
@@ -599,7 +732,7 @@ public sealed class SeedSearchEngine
         return string.Join('+', cards);
     }
 
-    private static IReadOnlyList<string> PotionPool(RunCharacter character)
+    private static IReadOnlyList<string> BuildPotionPool(RunCharacter character)
     {
         var own = character != RunCharacter.Any && SearchTheSpirePoolData.CharacterPotions.TryGetValue(character, out var values)
             ? values
@@ -609,7 +742,7 @@ public sealed class SeedSearchEngine
             .ToArray();
     }
 
-    private static IReadOnlyList<string> ShopRelicPool(RunCharacter character)
+    private static IReadOnlyList<string> BuildShopRelicPool(RunCharacter character)
     {
         var own = character != RunCharacter.Any && SearchTheSpirePoolData.CharacterShopRelics.TryGetValue(character, out var values)
             ? values
@@ -619,7 +752,7 @@ public sealed class SeedSearchEngine
             .ToArray();
     }
 
-    private static IReadOnlyList<string> CapsuleRelicPool(RunCharacter character)
+    private static IReadOnlyList<string> BuildCapsuleRelicPool(RunCharacter character)
     {
         var own = character != RunCharacter.Any && SearchTheSpirePoolData.CharacterCapsuleRelics.TryGetValue(character, out var values)
             ? values
@@ -643,7 +776,7 @@ public sealed class SeedSearchEngine
         var token = context.Split('|', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .FirstOrDefault(value => value.StartsWith('A'));
         return token != null && int.TryParse(token[1..], out var ascension)
-            ? Math.Clamp(ascension, 0, 20)
+            ? Math.Clamp(ascension, 0, SearchTheSpireBoardState.MaxAscension)
             : 0;
     }
 
@@ -652,7 +785,7 @@ public sealed class SeedSearchEngine
         string grantA,
         string grantB,
         IReadOnlyList<string> rewardCards,
-        IReadOnlyList<string> cards,
+        CardDetailPools cardPools,
         IReadOnlyList<string> potions,
         IReadOnlyList<string> relics,
         ref Sts2ReferenceRng.RngState neowRng,
@@ -672,8 +805,8 @@ public sealed class SeedSearchEngine
         if (offer == "neowsbones")
         {
             details["bones_curse"] = TakeValue(Curses, ref neowRng);
-            AddOfferDetails(details, grantA, "bones_", cards, potions, relics, ref neowRng);
-            AddOfferDetails(details, grantB, "bones_", cards, potions, relics, ref neowRng);
+            AddOfferDetails(details, grantA, "bones_", cardPools, potions, relics, ref neowRng);
+            AddOfferDetails(details, grantB, "bones_", cardPools, potions, relics, ref neowRng);
             var capsulePulls = CapsulePulls(grantA) + CapsulePulls(grantB);
             if (capsulePulls > 0)
             {
@@ -682,7 +815,7 @@ public sealed class SeedSearchEngine
         }
         else
         {
-            AddOfferDetails(details, offer, string.Empty, cards, potions, relics, ref neowRng);
+            AddOfferDetails(details, offer, string.Empty, cardPools, potions, relics, ref neowRng);
         }
 
         return string.Join(',', details.OrderBy(pair => pair.Key, StringComparer.Ordinal)
@@ -693,7 +826,7 @@ public sealed class SeedSearchEngine
         IDictionary<string, string> details,
         string offer,
         string prefix,
-        IReadOnlyList<string> cards,
+        CardDetailPools cardPools,
         IReadOnlyList<string> potions,
         IReadOnlyList<string> relics,
         ref Sts2ReferenceRng.RngState rng)
@@ -706,16 +839,16 @@ public sealed class SeedSearchEngine
         switch (offer)
         {
             case "heftytablet":
-                details[$"{prefix}tablet_card"] = TakeValue(cards, ref rng);
+                details[$"{prefix}tablet_card"] = TakeValue(cardPools.Rare, ref rng);
                 break;
             case "arcanescroll":
-                details[$"{prefix}arcane_card"] = TakeValue(cards, ref rng);
+                details[$"{prefix}arcane_card"] = TakeValue(cardPools.Rare, ref rng);
                 break;
             case "leadpaperweight":
-                details[$"{prefix}paperweight_card"] = TakeValue(cards, ref rng);
+                details[$"{prefix}paperweight_card"] = TakeValue(cardPools.Rollable, ref rng);
                 break;
             case "lostcoffer":
-                details[$"{prefix}coffer_card"] = TakeValue(cards, ref rng);
+                details[$"{prefix}coffer_card"] = TakeValue(cardPools.Rollable, ref rng);
                 details[$"{prefix}coffer_potion"] = TakeValue(potions, ref rng);
                 break;
             case "largecapsule":
@@ -737,16 +870,16 @@ public sealed class SeedSearchEngine
                     TakeDistinct(relics, prefix.Length == 0 ? 1 : 3, ref rng);
                 break;
             case "kaleidoscope":
-                details[$"{prefix}kaleido_distinct"] = TakeDistinct(cards, 2, ref rng);
+                details[$"{prefix}kaleido_distinct"] = TakeDistinct(cardPools.OtherCharacters, 2, ref rng);
                 break;
             case "newleaf":
-                details[$"{prefix}newleaf_card"] = TakeValue(cards, ref rng);
+                details[$"{prefix}newleaf_card"] = TakeValue(cardPools.Rollable, ref rng);
                 break;
             case "scrollboxes":
-                details[$"{prefix}scrollbox_contains"] = TakeDistinct(cards, 3, ref rng);
+                details[$"{prefix}scrollbox_contains"] = TakeDistinct(cardPools.CommonUncommon, 3, ref rng);
                 break;
             case "leafypoultice":
-                details[$"{prefix}poultice_set"] = TakeDistinct(cards, 2, ref rng);
+                details[$"{prefix}poultice_set"] = TakeDistinct(cardPools.Rollable, 2, ref rng);
                 break;
             case "phialholster":
                 details[$"{prefix}phial_potion"] = TakeDistinct(potions, 2, ref rng);
@@ -853,7 +986,13 @@ public sealed class SeedSearchEngine
     }
 
     private static bool MatchesNamedFilter(string value, string filter) =>
-        string.IsNullOrWhiteSpace(filter) || filter.Equals("Any", StringComparison.OrdinalIgnoreCase) || value.Contains(filter, StringComparison.OrdinalIgnoreCase);
+        string.IsNullOrWhiteSpace(filter) ||
+        filter.Equals("Any", StringComparison.OrdinalIgnoreCase) ||
+        // Compatibility for saved searches created by the first Chinese UI
+        // pass. New queries use the canonical English `Any` token at the
+        // display/model boundary, but old saves must not become zero-result.
+        filter is "任意" or "任何" ||
+        value.Contains(filter, StringComparison.OrdinalIgnoreCase);
 
     private static bool ContainsMultiset(string actual, string expectedValue)
     {
