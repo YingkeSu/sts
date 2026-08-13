@@ -40,6 +40,49 @@ if (SeedSearchEngine.CreateSeed(SeedBranch.PublicBeta, 1) != "100000000000" ||
     throw new InvalidOperationException("Beta seed codec does not match SearchTheSpire display_for_index.");
 }
 
+if (SeedSearchEngine.SeedCount(SeedBranch.PublicBeta) != 2_386_420_683_693_101_056L ||
+    SeedSearchEngine.SeedCount(SeedBranch.Main) != 4_294_967_296L)
+{
+    throw new InvalidOperationException("Seed space sizes drifted from the beta 34^12 / main uint ranges.");
+}
+
+// Searches may start far from the beginning (default random offset) and must
+// wrap past the end of the seed space instead of revisiting aliased seeds.
+var wrapTotal = SeedSearchEngine.SeedCount(SeedBranch.PublicBeta);
+var wrapQuery = new SeedQuery(
+    SeedBranch.PublicBeta,
+    GameApiVersion: SeedSearchEngine.PinnedGameApiVersion,
+    Character: RunCharacter.Any,
+    Ascension: 0,
+    RunMode: RunMode.Plain,
+    StopAfter: 20,
+    StartOffset: wrapTotal - 10,
+    MaxCandidates: 40,
+    MinimumElites: 0,
+    MinimumShops: 0,
+    MinimumRestSites: 0,
+    NeowFilter: NeowFilter.Any,
+    AncientFilter: "Any",
+    BossFilter: "Any",
+    HiddenSpec: "");
+var wrapResults = engine.Search(wrapQuery, CancellationToken.None);
+if (wrapResults.Count != 20 ||
+    wrapResults[0].Seed != SeedSearchEngine.CreateSeed(SeedBranch.PublicBeta, wrapTotal - 10) ||
+    wrapResults.Select(result => result.Seed).Distinct(StringComparer.Ordinal).Count() != 20)
+{
+    throw new InvalidOperationException("Search does not wrap past the seed-space end without duplicates.");
+}
+
+var randomStartLow = SeedSearchEngine.SeedCount(SeedBranch.PublicBeta) / 10;
+for (var sample = 0; sample < 200; sample++)
+{
+    var offset = SeedSearchEngine.PickRandomStartOffset(SeedBranch.PublicBeta, 1_000_000L);
+    if (offset < randomStartLow || offset >= SeedSearchEngine.SeedCount(SeedBranch.PublicBeta) - randomStartLow)
+    {
+        throw new InvalidOperationException($"Random search start {offset} is not far from the seed-space edges.");
+    }
+}
+
 // [issue-3] SearchTheSpire's board exposes none + A1..A10 only. The model,
 // engine context parsing and UI all share MaxAscension so a generic-looking
 // STS2 A0-A20 range cannot regress again (it already did twice).

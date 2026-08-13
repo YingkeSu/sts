@@ -18,6 +18,8 @@ public sealed class SeedSearchEngine
 
     private const string BetaAlphabet = "0123456789ABCDEFGHJKLMNPQRSTUVWXYZ";
     private const int BetaSeedLength = 12;
+    private const long PublicBetaSeedCount = 2_386_420_683_693_101_056L; // 34^12
+    private const long MainSeedCount = 4_294_967_296L; // uint seed space
     private static readonly string[] CursedOffers =
     {
         "cursedpearl", "dowsingrod", "heftytablet", "largecapsule", "leafypoultice",
@@ -177,6 +179,36 @@ public sealed class SeedSearchEngine
 
     public static string CreateSeed(SeedBranch branch, long index) => SeedCodec.FromIndex(branch, index);
 
+    public static long SeedCount(SeedBranch branch) =>
+        branch == SeedBranch.PublicBeta ? PublicBetaSeedCount : MainSeedCount;
+
+    /// <summary>
+    /// Picks a deterministic-range default search start that stays away from
+    /// the seed space edges, so consecutive searches do not keep producing
+    /// near-zero seeds. The offset is resolved once per search so the exact
+    /// scanned window stays reproducible in saved queries.
+    /// </summary>
+    public static long PickRandomStartOffset(SeedBranch branch, long budget)
+    {
+        var total = SeedCount(branch);
+        var safeLow = total / 10;
+        var safeBudget = Math.Max(1, Math.Min(budget, total));
+        var safeHigh = total - safeLow - safeBudget;
+        if (safeHigh <= safeLow)
+        {
+            // A full-space budget cannot stay clear of the far end; keep it
+            // clear of the beginning and let Search wrap past the end.
+            safeHigh = total - safeLow - 1;
+        }
+
+        if (safeHigh <= safeLow)
+        {
+            safeHigh = total - 1;
+        }
+
+        return Random.Shared.NextInt64(safeLow, safeHigh + 1);
+    }
+
     public IReadOnlyList<SeedMatch> Search(
         SeedQuery query,
         CancellationToken cancellationToken,
@@ -185,8 +217,9 @@ public sealed class SeedSearchEngine
         const long chunkSize = 1024;
 
         var stopAfter = Math.Clamp(query.StopAfter, 1, 1000);
-        var budget = Math.Max(1, query.MaxCandidates);
-        var start = Math.Max(0, query.StartOffset);
+        var seedCount = SeedCount(query.Branch);
+        var budget = (long)Math.Min(Math.Max(1, query.MaxCandidates), seedCount);
+        var start = Math.Clamp(query.StartOffset, 0, seedCount - 1);
         var context = BuildContext(query);
         var workerCount = Math.Max(1, Environment.ProcessorCount);
         var totalChunks = (budget + chunkSize - 1) / chunkSize;
@@ -228,7 +261,13 @@ public sealed class SeedSearchEngine
                         {
                             cancellationToken.ThrowIfCancellationRequested();
 
-                            var seed = SeedCodec.FromIndex(query.Branch, start + offset);
+                            var candidateIndex = start + offset;
+                            if (candidateIndex >= seedCount)
+                            {
+                                candidateIndex -= seedCount;
+                            }
+
+                            var seed = SeedCodec.FromIndex(query.Branch, candidateIndex);
                             var needsMap = query.MinimumElites > 0 ||
                                            query.MinimumShops > 0 ||
                                            query.MinimumRestSites > 0;

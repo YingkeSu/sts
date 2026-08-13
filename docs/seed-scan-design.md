@@ -5,6 +5,9 @@
 `SeedSearchOverlay.StartSearch()` 读取当前面板状态，生成一个 `SeedQuery`，然后在后台任务中调用 `SeedSearchEngine.Search()`。搜索过程是本地、确定性的候选枚举：
 
 1. `SeedCodec.FromIndex()` 从 `StartOffset` 开始生成候选种子。公开测试分支使用 STS2 public-beta 的 12 位字母表。
+   UI 默认启用“随机起点”：每次搜索先在种子空间中间 80% 内随机取一个
+   `StartOffset`（解析进 `_lastQuery`，可复现/可保存），候选索引越过空间末尾时
+   绕回开头，避免重复枚举同一批种子。
 2. `Inspect()` 对候选种子计算 public-beta `XxHash64`，按固定的 RNG stream 顺序生成涅奥、首领、远古、奖励、商店、遗物袋和事件摘要；Act 1 地图由
    `act_1_map` stream 经 `StandardActMap` 的 v0.110.1 移植生成（路径、点类型
    分配、剪枝与后处理全部对齐游戏反编译，见

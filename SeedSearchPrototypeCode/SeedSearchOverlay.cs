@@ -43,6 +43,7 @@ public partial class SeedSearchOverlay : CanvasLayer
     private Label _inspectStatusLabel = null!;
     private LineEdit _inspectInput = null!;
     private LineEdit _advancedInput = null!;
+    private CheckBox _randomStartInput = null!;
     private OptionButton _branchInput = null!;
     private OptionButton _stopAfterInput = null!;
     private OptionButton _maxCandidatesInput = null!;
@@ -479,9 +480,19 @@ public partial class SeedSearchOverlay : CanvasLayer
             PlaceholderText = "0",
             CustomMinimumSize = new Vector2(210, 36)
         };
+        _randomStartInput = new CheckBox
+        {
+            Text = Localization.T("random start"),
+            TooltipText = Localization.T("start from a random offset away from the seed space edges"),
+            ButtonPressed = true,
+            CustomMinimumSize = new Vector2(210, 36)
+        };
+        _randomStartInput.Toggled += _ => UpdateRandomStartControls();
         AddField(controls, "stop after", _stopAfterInput);
         AddField(controls, "runs to search", _maxCandidatesInput);
         AddField(controls, "advanced offset", _advancedInput);
+        AddField(controls, "random start", _randomStartInput);
+        UpdateRandomStartControls();
 
         _customCandidatesRow = new HBoxContainer { Visible = false };
         _customCandidatesRow.AddThemeConstantOverride("separation", 8);
@@ -650,7 +661,7 @@ public partial class SeedSearchOverlay : CanvasLayer
             return;
         }
 
-        var query = ReadQuery();
+        var query = FinalizeQuery(ReadQuery());
         _lastQuery = query;
         _lastProgress = 0;
         _searchCancellation = new CancellationTokenSource();
@@ -685,7 +696,7 @@ public partial class SeedSearchOverlay : CanvasLayer
             return;
         }
 
-        var query = ReadQuery();
+        var query = FinalizeQuery(ReadQuery());
         var snapshot = GameSeedRuntimeBackend.TryInspect(
             seed,
             query.Branch,
@@ -1157,7 +1168,7 @@ public partial class SeedSearchOverlay : CanvasLayer
 
     private void ShareSearch()
     {
-        var query = ReadQuery();
+        var query = FinalizeQuery(ReadQuery());
         var spec = $"sts2seed://search?version={query.GameApiVersion}&branch={query.Branch}&character={query.Character}&ascension={query.Ascension}&mode={query.RunMode}&neow={query.NeowFilter}&ancient={query.AncientFilter}&boss={query.BossFilter}&elites={query.MinimumElites}&shops={query.MinimumShops}&rests={query.MinimumRestSites}&offset={query.StartOffset}&extended={Uri.EscapeDataString(query.HiddenSpec)}";
         CopyToClipboard(spec);
         SetStatus("search spec copied", Accent);
@@ -1241,7 +1252,9 @@ public partial class SeedSearchOverlay : CanvasLayer
         _maxCandidatesInput.Selected = 0;
         _maxCandidatesCustomInput.Text = DefaultMaxCandidates.ToString(CultureInfo.InvariantCulture);
         UpdateCustomCandidatesVisibility();
+        _randomStartInput.ButtonPressed = true;
         _advancedInput.Text = "0";
+        UpdateRandomStartControls();
         _eliteInput.Selected = 0;
         _shopInput.Selected = 0;
         _restInput.Selected = 0;
@@ -1410,7 +1423,18 @@ public partial class SeedSearchOverlay : CanvasLayer
         _restInput.Selected = Math.Clamp(query.MinimumRestSites, 0, _restInput.ItemCount - 1);
         _ancientInput.Selected = AncientFilterIndex(query.AncientFilter);
         _bossInput.Selected = BossFilterIndex(query.BossFilter);
-        _advancedInput.Text = query.StartOffset.ToString(CultureInfo.InvariantCulture);
+        if (query.StartOffset < 0)
+        {
+            _randomStartInput.ButtonPressed = true;
+            _advancedInput.Text = "0";
+        }
+        else
+        {
+            _randomStartInput.ButtonPressed = false;
+            _advancedInput.Text = query.StartOffset.ToString(CultureInfo.InvariantCulture);
+        }
+
+        UpdateRandomStartControls();
         RefreshNeowInputText();
         RefreshNeowDetails();
         RefreshAdvancedDetails();
@@ -1434,6 +1458,10 @@ public partial class SeedSearchOverlay : CanvasLayer
         var offset = long.TryParse(_advancedInput.Text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsedOffset)
             ? Math.Max(0, parsedOffset)
             : 0;
+        if (_randomStartInput.ButtonPressed)
+        {
+            offset = -1;
+        }
 
         var stopAfter = new[] { 5, 10, 20, 50 }[_stopAfterInput.Selected];
         return new SeedQuery(
@@ -1457,6 +1485,24 @@ public partial class SeedSearchOverlay : CanvasLayer
             AncientFilter: AncientFilterValue(_ancientInput.Selected),
             BossFilter: BossFilterValue(_bossInput.Selected),
             HiddenSpec: _boardState.ToSpec());
+    }
+
+    private static SeedQuery FinalizeQuery(SeedQuery query) =>
+        query.StartOffset < 0
+            ? query with
+            {
+                StartOffset = SeedSearchEngine.PickRandomStartOffset(query.Branch, query.MaxCandidates)
+            }
+            : query;
+
+    private void UpdateRandomStartControls()
+    {
+        if (_advancedInput == null)
+        {
+            return;
+        }
+
+        _advancedInput.Editable = !_randomStartInput.ButtonPressed;
     }
 
     private static readonly string[] AncientFilterValues =

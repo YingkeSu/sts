@@ -112,6 +112,9 @@ public static class Localization
             ["stop after"] = "最多结果",
             ["runs to search"] = "搜索候选数",
             ["advanced offset"] = "高级偏移",
+            ["random start"] = "随机起点",
+            ["start from a random offset away from the seed space edges"] =
+                "从远离种子空间首尾的随机位置开始搜索",
             ["Search"] = "搜索",
             ["Search seeds"] = "搜索种子",
             ["Cancel"] = "取消",
