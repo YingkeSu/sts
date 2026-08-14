@@ -24,10 +24,13 @@
       <HintPath>$(Sts2DataDir)/sts2.dll</HintPath>
       <Private>false</Private>
     </Reference>
+    <Reference Include="BaseLib">
+      <HintPath>$(BaseLibPath)</HintPath>
+      <Private>false</Private>
+    </Reference>
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Alchyr.Sts2.BaseLib" Version="*" PrivateAssets="All" />
     <Compile Remove="SeedSearchPrototype/**" />
     <Compile Remove="tests/**" />
     <Compile Remove="tools/**" />
@@ -37,11 +40,13 @@
   </ItemGroup>
 
   <Target Name="CheckDependencyPaths" BeforeTargets="PrepareForBuild">
-    <Error Text="Slay the Spire 2 data not found at '$(Sts2DataDir)'" Condition="'$(Sts2DataDir)' == '' or !Exists('$(Sts2DataDir)')" />
-    <MakeDir Directories="$(ModsPath)$(MSBuildProjectName)" />
+    <Error Text="Slay the Spire 2 data not found at '$(Sts2DataDir)'. Set STS2_GAME_PATH or pass -p:Sts2GamePath=..." Condition="'$(Sts2DataDir)' == '' or !Exists('$(Sts2DataDir)')" />
+    <Error Text="BaseLib not found at '$(BaseLibPath)'. Set STS2_BASELIB_PATH or pass -p:BaseLibPath=..." Condition="'$(BaseLibPath)' == '' or !Exists('$(BaseLibPath)')" />
+    <Error Text="InstallMod requires a Workshop id or ModsPath. Pass -p:Sts2ModWorkshopId=... or -p:ModsPath=..., or build with -p:InstallMod=false." Condition="'$(InstallMod)' == 'true' and '$(ModsPath)' == ''" />
+    <MakeDir Directories="$(ModsPath)$(MSBuildProjectName)" Condition="'$(InstallMod)' == 'true' and '$(ModsPath)' != ''" />
   </Target>
 
-  <Target Name="CopyToModsFolderOnBuild" AfterTargets="Build" Condition="'$(InstallMod)' == 'true'">
+  <Target Name="CopyToModsFolderOnBuild" AfterTargets="Build" Condition="'$(InstallMod)' == 'true' and '$(ModsPath)' != ''">
     <Message Text="Installing Seed Search DLL and manifest into $(ModsPath)$(MSBuildProjectName)" Importance="high" />
     <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(ModsPath)$(MSBuildProjectName)" />
     <Copy SourceFiles="$(MSBuildProjectDirectory)/SeedSearchPrototype.json" DestinationFolder="$(ModsPath)$(MSBuildProjectName)" />

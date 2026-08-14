@@ -27,27 +27,39 @@
 
 ## 本地构建
 
-前置要求：本机已全局安装 .NET 9 SDK（用 `dotnet --version` 确认）。
+前置要求：本机已安装 .NET 9 SDK（用 `dotnet --version` 确认；如果 `dotnet` 不在 PATH，可使用本机 SDK 的完整路径，例如 `C:\Users\Lenovo\.dotnet\dotnet.exe`）。
 
 ```bash
 dotnet restore SeedSearchPrototype.csproj
-dotnet build SeedSearchPrototype.csproj --no-restore
+dotnet build SeedSearchPrototype.csproj --no-restore -p:InstallMod=false
 dotnet run --project tests/SeedSearchCoreChecks.csproj
 ```
 
-默认构建会安装 Mod 到游戏 Mods 目录，重启游戏后生效。如果只想编译不安装，使用：
+默认构建会尝试安装 Mod 到本机游戏目录，重启游戏后生效；如果只想编译不安装，使用上面的 `-p:InstallMod=false`。
+
+### Windows
+
+Windows 安装前需要把 `Sts2ModWorkshopId` 设为本项目的 Workshop id，或直接传 `-p:ModsPath=...`：
 
 ```bash
-dotnet build SeedSearchPrototype.csproj --no-restore -p:InstallMod=false
+dotnet build SeedSearchPrototype.csproj -p:InstallMod=true -p:Sts2ModWorkshopId=<WorkshopId>
 ```
 
-安装目标是本机游戏的：
+安装目标是：
+
+```text
+<SteamLibrary>\steamapps\workshop\content\2868840\<WorkshopId>\SeedSearchPrototype\
+```
+
+`Sts2PathDiscovery.props` 会按 OS 探测 Steam 库：Windows 使用 `data_sts2_windows_x86_64` 下的 `sts2.dll` 与 `0Harmony.dll`，并直接引用已安装的 BaseLib（Workshop item `3737335127`），不再依赖 NuGet 包。可用环境变量 `STS2_GAME_PATH`、`STS2_STEAM_LIBRARY`、`STS2_BASELIB_PATH`，或构建参数 `-p:Sts2GamePath=...`、`-p:BaseLibPath=...`、`-p:ModsPath=...` 覆盖探测结果。
+
+macOS（Apple Silicon）安装目标保持：
 
 ```text
 SlayTheSpire2.app/Contents/MacOS/mods/SeedSearchPrototype/
 ```
 
-当前项目是代码型 Mod，不需要 `.pck`。本地路径已按 Apple Silicon 安装目录显式配置在 [Sts2PathDiscovery.props](Sts2PathDiscovery.props) 中。
+当前项目是代码型 Mod，不需要 `.pck`。
 
 
 
