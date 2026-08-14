@@ -12,8 +12,7 @@ public sealed partial class MapPreview : Control
     private const float CellWidth = 44f;
     private const float RowHeight = 42f;
     private const float Pad = 16f;
-    private const float IconFill = 0.52f;
-    private const float BossIconFill = 0.68f;
+    private const float PreviewScale = 0.35f;
     private static readonly Color EdgeColor = new("888888");
     private static readonly Color GlyphColor = new("ffffff");
 
@@ -62,18 +61,17 @@ public sealed partial class MapPreview : Control
                 continue;
             }
 
-            // Every node owns one cell-sized region; the icon is a fixed
-            // fraction of that region so neighboring icons cannot overlap.
-            var region = Mathf.Min(CellWidth, RowHeight);
-            var size = node.Kind is "boss" or "ancient"
-                ? region * BossIconFill
-                : region * IconFill;
+            // Mirror the game's per-kind icon boxes (normal 92x92,
+            // boss 374x350, ancient 208x208) at preview scale, centered on
+            // the node. FitWidthProportion keeps atlas regions from drawing
+            // at their native size, which was misaligning and inflating them.
+            var size = DisplaySize(node.Kind);
             AddChild(new TextureRect
             {
                 Texture = icon,
                 Position = _positions[index] - Vector2.One * size / 2f,
                 Size = Vector2.One * size,
-                ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
+                ExpandMode = TextureRect.ExpandModeEnum.FitWidthProportional,
                 StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
                 MouseFilter = MouseFilterEnum.Ignore,
             });
@@ -119,10 +117,10 @@ public sealed partial class MapPreview : Control
                 ? value
                 : (Color: new Color("000000"), Glyph: "·");
             var center = _positions[index];
-            var region = Mathf.Min(CellWidth, RowHeight);
-            DrawCircle(center, region * 0.24f, style.Color);
+            var size = DisplaySize(node.Kind);
+            DrawCircle(center, size * 0.24f, style.Color);
 
-            const int fontSize = 10;
+            var fontSize = node.Kind is "boss" or "ancient" ? 14 : 10;
             var textWidth = font.GetStringSize(style.Glyph, HorizontalAlignment.Left, -1, fontSize).X;
             DrawString(
                 font,
@@ -134,6 +132,14 @@ public sealed partial class MapPreview : Control
                 GlyphColor);
         }
     }
+
+    private static float DisplaySize(string kind) =>
+        (kind switch
+        {
+            "boss" => 374f,
+            "ancient" => 208f,
+            _ => 92f,
+        }) * PreviewScale;
 
     private void DrawDashedLine(Vector2 from, Vector2 to, Color color, float width, float dash, float gap)
     {
