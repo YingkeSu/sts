@@ -62,8 +62,6 @@ public partial class SeedSearchOverlay : CanvasLayer
     private TextureRect _characterPreview = null!;
     private OptionButton _ascensionInput = null!;
     private OptionButton _runModeInput = null!;
-    private OptionButton _ancientInput = null!;
-    private OptionButton _bossInput = null!;
     private Button _searchButton = null!;
     private Button _cancelButton = null!;
     private Button _spoilerButton = null!;
@@ -439,8 +437,6 @@ public partial class SeedSearchOverlay : CanvasLayer
         _eliteInput = MakeOption(new[] { "0+ elites", "1+ elites", "2+ elites", "3+ elites" }, 0, 210);
         _shopInput = MakeOption(new[] { "0+ shops", "1+ shops", "2+ shops" }, 0, 210);
         _restInput = MakeOption(new[] { "0+ rest sites", "1+ rest sites", "2+ rest sites", "3+ rest sites" }, 0, 210);
-        _ancientInput = MakeOption(new[] { "Any", "Ancient A", "Ancient B", "Ancient C", "Ancient D" }, 0, 210);
-        _bossInput = MakeOption(new[] { "Any", "Boss 1", "Boss 2", "Boss 3" }, 0, 210);
         AddField(grid, "Neow", _neowInputButton);
         AddField(grid, "Character", characterCell);
         AddField(grid, "Ascension", _ascensionInput);
@@ -448,8 +444,6 @@ public partial class SeedSearchOverlay : CanvasLayer
         AddField(grid, "Act 1 elites", _eliteInput);
         AddField(grid, "Act 1 shops", _shopInput);
         AddField(grid, "Act 1 rests", _restInput);
-        AddField(grid, "Ancient", _ancientInput);
-        AddField(grid, "Boss", _bossInput);
 
         _neowDetails = new VBoxContainer();
         _neowDetails.AddThemeConstantOverride("separation", 6);
@@ -599,6 +593,9 @@ public partial class SeedSearchOverlay : CanvasLayer
         var randomButton = MakeButton("copy random seed", "Copy a random seed from the current results", 144);
         randomButton.Pressed += CopyRandomSeed;
         actions.AddChild(randomButton);
+        var clearCandidatesButton = MakeButton("clear candidates", "Clear the current result candidates", 128);
+        clearCandidatesButton.Pressed += ClearResults;
+        actions.AddChild(clearCandidatesButton);
 
         return panel;
     }
@@ -1315,8 +1312,20 @@ public partial class SeedSearchOverlay : CanvasLayer
         _eliteInput.Selected = 0;
         _shopInput.Selected = 0;
         _restInput.Selected = 0;
-        _ancientInput.Selected = 0;
-        _bossInput.Selected = 0;
+        SetStatus("results show up here. select some filters, then hit Search.", MutedText);
+    }
+
+    private void ClearResults()
+    {
+        CancelSearch();
+        _lastQuery = null;
+        _lastResults = Array.Empty<SeedMatch>();
+        _lastProgress = 0;
+        _lastMatchCount = 0;
+        _resultCountLabel.Text = Localization.T("0 matches");
+        _progressLabel.Text = Localization.T("ready");
+        _statsLabel.Text = "";
+        ClearChildren(_resultsList);
         SetStatus("results show up here. select some filters, then hit Search.", MutedText);
     }
 
@@ -1367,8 +1376,11 @@ public partial class SeedSearchOverlay : CanvasLayer
 
     private void OpenSavedSearch(SavedSearch saved)
     {
-        _lastQuery = saved.Query;
-        RestoreQueryControls(saved.Query);
+        // The removed Ancient/Boss dropdowns could persist in old saved
+        // queries; normalize them so a stale value cannot zero out a search.
+        var query = saved.Query with { AncientFilter = "Any", BossFilter = "Any" };
+        _lastQuery = query;
+        RestoreQueryControls(query);
         ApplyResults(saved.Results);
         ShowBoard();
     }
@@ -1407,8 +1419,6 @@ public partial class SeedSearchOverlay : CanvasLayer
         _eliteInput.Selected = Math.Clamp(query.MinimumElites, 0, _eliteInput.ItemCount - 1);
         _shopInput.Selected = Math.Clamp(query.MinimumShops, 0, _shopInput.ItemCount - 1);
         _restInput.Selected = Math.Clamp(query.MinimumRestSites, 0, _restInput.ItemCount - 1);
-        _ancientInput.Selected = AncientFilterIndex(query.AncientFilter);
-        _bossInput.Selected = BossFilterIndex(query.BossFilter);
         if (query.StartOffset < 0)
         {
             _randomStartInput.ButtonPressed = true;
@@ -1467,8 +1477,8 @@ public partial class SeedSearchOverlay : CanvasLayer
                     ? NeowFilter.HasCurse
                     : NeowFilter.HasBlessing
                 : NeowFilter.Any,
-            AncientFilter: AncientFilterValue(_ancientInput.Selected),
-            BossFilter: BossFilterValue(_bossInput.Selected),
+            AncientFilter: "Any",
+            BossFilter: "Any",
             HiddenSpec: _boardState.ToSpec());
     }
 
@@ -1489,24 +1499,6 @@ public partial class SeedSearchOverlay : CanvasLayer
 
         _advancedInput.Editable = !_randomStartInput.ButtonPressed;
     }
-
-    private static readonly string[] AncientFilterValues =
-        { "Any", "Ancient A", "Ancient B", "Ancient C", "Ancient D" };
-
-    private static readonly string[] BossFilterValues =
-        { "Any", "Boss 1", "Boss 2", "Boss 3" };
-
-    private static string AncientFilterValue(int index) =>
-        AncientFilterValues[Math.Clamp(index, 0, AncientFilterValues.Length - 1)];
-
-    private static string BossFilterValue(int index) =>
-        BossFilterValues[Math.Clamp(index, 0, BossFilterValues.Length - 1)];
-
-    private static int AncientFilterIndex(string value) =>
-        Math.Clamp(Array.IndexOf(AncientFilterValues, value), 0, AncientFilterValues.Length - 1);
-
-    private static int BossFilterIndex(string value) =>
-        Math.Clamp(Array.IndexOf(BossFilterValues, value), 0, BossFilterValues.Length - 1);
 
     private long ReadMaxCandidates()
     {

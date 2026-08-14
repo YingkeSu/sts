@@ -36,7 +36,8 @@ public static class OptionArtRouter
         // Neow's cursed/bonus offers are all relic-style rewards; the board
         // groups them under their own sections rather than "relic rewards".
         if (value.Equals("cursed offer", StringComparison.OrdinalIgnoreCase) ||
-            value.Equals("bonus offer", StringComparison.OrdinalIgnoreCase))
+            value.Equals("bonus offer", StringComparison.OrdinalIgnoreCase) ||
+            value.Equals("ancient offers", StringComparison.OrdinalIgnoreCase))
         {
             return OptionArtKind.Relic;
         }

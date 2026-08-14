@@ -10,7 +10,7 @@
 - 进阶覆盖 A0-A10（SearchTheSpire board 的 `none` + A1..A10），模型、UI 与恢复路径统一以 A10 为上限；
 - 搜索数量、候选范围、偏移量；
 - Inspect seed；
-- 结果表、保存搜索、复制种子、复制搜索规格、剧透开关。
+- 结果表、保存搜索、复制种子、复制搜索规格、剧透开关、清空已有候选。
 - 点击具体 Neow 遗物后展开其条件子槽位，例如 Neow's Bones 的两个 grant、curse，以及 grant 遗物继续产生的牌/药水/胶囊约束；子槽支持分组 Picker、搜索和不可用原因提示。
 - `run layout & drop pins` 展开 Act 1 地图、三幕首领、A10 第二首领、Ancient、奖励牌包、商店遗物、遗物袋和事件的同类嵌套 Picker；地图/首领会按地图联动，重复遗物与重复首领会被阻止。
 - 点击结果行中的 `details` 查看该种子的 Act 1、Neow、Ancient、Boss 与早期路线摘要；有游戏运行时可用时，会按 SearchTheSpire 预览的样式绘制 Act 1 节点地图（类型着色、虚线路线、Boss/Ancient 收尾）。

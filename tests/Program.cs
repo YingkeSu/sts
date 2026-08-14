@@ -73,6 +73,30 @@ if (wrapResults.Count != 20 ||
     throw new InvalidOperationException("Search does not wrap past the seed-space end without duplicates.");
 }
 
+var fullSpaceStart = SeedSearchEngine.PickRandomStartOffset(
+    SeedBranch.PublicBeta,
+    SeedSearchEngine.SeedCount(SeedBranch.PublicBeta));
+var fullSpaceQuery = new SeedQuery(
+    SeedBranch.PublicBeta,
+    GameApiVersion: SeedSearchEngine.PinnedGameApiVersion,
+    Character: RunCharacter.Any,
+    Ascension: 0,
+    RunMode: RunMode.Plain,
+    StopAfter: 5,
+    StartOffset: fullSpaceStart,
+    MaxCandidates: SeedSearchEngine.SeedCount(SeedBranch.PublicBeta),
+    MinimumElites: 0,
+    MinimumShops: 0,
+    MinimumRestSites: 0,
+    NeowFilter: NeowFilter.Any,
+    AncientFilter: "Any",
+    BossFilter: "Any",
+    HiddenSpec: "");
+if (engine.Search(fullSpaceQuery, CancellationToken.None).Count != 5)
+{
+    throw new InvalidOperationException("The default full-space UI search unexpectedly found no seeds.");
+}
+
 var randomStartLow = SeedSearchEngine.SeedCount(SeedBranch.PublicBeta) / 10;
 for (var sample = 0; sample < 200; sample++)
 {
@@ -216,7 +240,8 @@ if (OptionArtRouter.For(new SearchTheSpireOption("bash", "Bash", "Ironclad cards
     OptionArtRouter.For(new SearchTheSpireOption("vantom", "Vantom", "Overgrowth bosses")) != OptionArtKind.Boss ||
     OptionArtRouter.For(new SearchTheSpireOption("selfhelpbook", "Self Help Book", "act 1 event")) != OptionArtKind.None ||
     OptionArtRouter.For(new SearchTheSpireOption("neowsbones", "Neow's Bones", "cursed offer")) != OptionArtKind.Relic ||
-    OptionArtRouter.For(new SearchTheSpireOption("neowstorment", "Neow's Torment", "bonus offer")) != OptionArtKind.Relic)
+    OptionArtRouter.For(new SearchTheSpireOption("neowstorment", "Neow's Torment", "bonus offer")) != OptionArtKind.Relic ||
+    OptionArtRouter.For(new SearchTheSpireOption("glasseye", "Glass Eye", "ancient offers")) != OptionArtKind.Relic)
 {
     throw new InvalidOperationException("Picker art routing does not distinguish cards, relics and bosses.");
 }
