@@ -2,7 +2,7 @@
 
 仓库全名：`sts-searchtheseed`
 
-这是一个《杀戮尖塔 2》游戏内种子搜索 Mod，界面按 SearchTheSpire 的工作流组织：
+这是一个《杀戮尖塔 2》游戏内种子搜索 Mod
 
 - Board / Saved 标签页（Popular 冗余模块已移除）；
 - 当前 public beta 分支选择；
@@ -49,14 +49,7 @@ SlayTheSpire2.app/Contents/MacOS/mods/SeedSearchPrototype/
 
 当前项目是代码型 Mod，不需要 `.pck`。本地路径已按 Apple Silicon 安装目录显式配置在 [Sts2PathDiscovery.props](Sts2PathDiscovery.props) 中。
 
-## 版本边界
 
-- 当前 manifest 与引擎都钉在 public beta `v0.110.1`，唯一来源是 [SeedSearchEngine.cs](SeedSearchPrototypeCode/SeedSearchEngine.cs) 的 `PinnedGameApiVersion`；测试断言 manifest 与常量一致，不要把其它分支的 RNG 结果混用。
-- 版本边界与中文旧保存兼容的根因记录在 [docs/seed-scan-design.md](docs/seed-scan-design.md)；与 SearchTheSpire 的逐元素对照见 [docs/searchthespire-gap-report.md](docs/searchthespire-gap-report.md)，页面源码快照在 [docs/searchthespire-reference/](docs/searchthespire-reference/)。
-- SearchTheSpire 的 seed preview 用于版本与字段抽检；它是浏览器端 Rust/WASM 工具，不作为 Mod 的运行时依赖。
-- Inspect seed 会优先调用游戏运行时的单种子预览；批量搜索使用本地、可替换的 reference RNG backend。查询模型、Picker 与结果详情已经独立，后续替换版本化 RNG backend 时不需要重做页面。
-- 已验证的游戏 API 用法、线程边界与 RNG 细节记录在 [docs/sts2-api-notes.md](docs/sts2-api-notes.md)；踩坑清单沉淀在 `sts2-mod` 技能的 `references/pitfalls.md`。
-- 界面翻译直接读取游戏官方资源包中的本地化表，说明见 [docs/localization.md](docs/localization.md)。
 
 ## 使用
 
