@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json;
@@ -83,6 +84,18 @@ public partial class SeedSearchOverlay : CanvasLayer
     private long _lastMatchCount;
     private bool _showSpoilers;
 
+    // Streaming-search hand-off. The engine invokes the match callback on a
+    // worker thread; the only cross-thread action there is a queue enqueue
+    // plus a deferred wake-up. Godot nodes are touched exclusively from the
+    // main thread (DrainStreamedMatches runs via CallDeferred / _Process).
+    // The epoch filters out matches emitted by a search that was cancelled
+    // or detached before its rows could be shown.
+    private readonly ConcurrentQueue<(int Epoch, SeedMatch Match)> _pendingMatches = new();
+    private List<SeedMatch>? _streamResults;
+    private int _searchEpoch;
+    private int _searchTaskEpoch;
+    private int _drainScheduled;
+
     public override void _Ready()
     {
         Layer = 1000;
@@ -118,36 +131,66 @@ public partial class SeedSearchOverlay : CanvasLayer
 
     public override void _Process(double delta)
     {
+        // Belt-and-suspenders drain so a match can never stay stranded in the
+        // queue even if a deferred wake-up raced with the drain flag reset.
+        if (!_pendingMatches.IsEmpty)
+        {
+            DrainStreamedMatches();
+        }
+
         if (_searchTask is { IsCompleted: true } completedTask)
         {
             _searchTask = null;
             _searchCancellation?.Dispose();
             _searchCancellation = null;
+            // Task completion fences all engine emissions, so this drain puts
+            // every remaining match on screen before the terminal status.
+            if (!_pendingMatches.IsEmpty)
+            {
+                DrainStreamedMatches();
+            }
 
+            // A search that was cleared/detached keeps ownership of the
+            // screen; only restore the buttons, never stomp the new status.
+            var stillCurrent = _searchTaskEpoch == _searchEpoch;
             if (completedTask.IsCanceled)
             {
                 RestoreSearchUi();
-                SetStatus("search cancelled", MutedText);
-                _statsLabel.Text = BuildSearchStats(
-                    _lastProgress,
-                    (int)_lastMatchCount,
-                    _searchStopwatch.Elapsed.TotalSeconds);
+                if (stillCurrent)
+                {
+                    SetStatus("search cancelled", MutedText);
+                    _statsLabel.Text = BuildSearchStats(
+                        _lastProgress,
+                        (int)_lastMatchCount,
+                        _searchStopwatch.Elapsed.TotalSeconds);
+                }
             }
             else if (completedTask.IsFaulted)
             {
                 MainFile.Logger.Error($"Seed search failed: {completedTask.Exception}");
                 RestoreSearchUi();
-                SetStatus("search failed; check godot.log", Danger);
-                _statsLabel.Text = BuildSearchStats(
-                    _lastProgress,
-                    (int)_lastMatchCount,
-                    _searchStopwatch.Elapsed.TotalSeconds);
+                if (stillCurrent)
+                {
+                    SetStatus("search failed; check godot.log", Danger);
+                    _statsLabel.Text = BuildSearchStats(
+                        _lastProgress,
+                        (int)_lastMatchCount,
+                        _searchStopwatch.Elapsed.TotalSeconds);
+                }
             }
             else
             {
                 try
                 {
-                    ApplyResults(completedTask.GetAwaiter().GetResult());
+                    var results = completedTask.GetAwaiter().GetResult();
+                    if (!stillCurrent)
+                    {
+                        RestoreSearchUi();
+                    }
+                    else
+                    {
+                        FinalizeSearch(results);
+                    }
                 }
                 catch (Exception exception)
                 {
@@ -290,14 +333,7 @@ public partial class SeedSearchOverlay : CanvasLayer
     private void ToggleLanguage()
     {
         var wasSearching = _searchTask != null;
-        if (_searchTask != null)
-        {
-            CancelSearch();
-            _searchCancellation?.Dispose();
-            _searchCancellation = null;
-            _searchTask = null;
-            RestoreSearchUi();
-        }
+        DetachActiveSearch();
 
         var query = ReadQuery();
         var spoilers = _showSpoilers;
@@ -671,20 +707,103 @@ public partial class SeedSearchOverlay : CanvasLayer
         _lastProgress = 0;
         _lastMatchCount = 0;
         _searchStopwatch.Restart();
+
+        // Streaming results: rows appear as matches are found, so the table
+        // starts empty and any queued matches from an earlier epoch are
+        // dropped by bumping the epoch before the first emission.
+        _searchEpoch++;
+        var searchEpoch = _searchEpoch;
+        _searchTaskEpoch = searchEpoch;
+        _pendingMatches.Clear();
+        _streamResults = new List<SeedMatch>();
+        _lastResults = _streamResults;
+        ClearChildren(_resultsList);
+        _resultCountLabel.Text = Localization.T("0 matches");
+
         _searchCancellation = new CancellationTokenSource();
         var token = _searchCancellation.Token;
         _searchTask = Task.Run(
-            () => _engine.Search(query, token, progress =>
-            {
-                Interlocked.Exchange(ref _lastProgress, progress.Checked);
-                Interlocked.Exchange(ref _lastMatchCount, progress.MatchCount);
-            }),
+            () => _engine.Search(
+                query,
+                token,
+                progress =>
+                {
+                    Interlocked.Exchange(ref _lastProgress, progress.Checked);
+                    Interlocked.Exchange(ref _lastMatchCount, progress.MatchCount);
+                },
+                match => QueueStreamedMatch(searchEpoch, match)),
             token);
 
         _searchButton.Disabled = true;
         _cancelButton.Disabled = false;
         _progressLabel.Text = Localization.T("searching");
         SetStatus("searching…", MutedText);
+    }
+
+    /// <summary>
+    /// Engine worker thread only. Hands a streamed match to the main thread:
+    /// enqueue into the concurrent queue and schedule one coalesced deferred
+    /// drain. Never touches Godot nodes.
+    /// </summary>
+    private void QueueStreamedMatch(int epoch, SeedMatch match)
+    {
+        _pendingMatches.Enqueue((epoch, match));
+        if (Interlocked.Exchange(ref _drainScheduled, 1) == 0)
+        {
+            try
+            {
+                CallDeferred(nameof(DrainStreamedMatches));
+            }
+            catch (Exception exception)
+            {
+                MainFile.Logger.Warn($"Could not schedule a seed search stream drain: {exception.Message}");
+            }
+        }
+    }
+
+    /// <summary>
+    /// Main thread only (CallDeferred target, also called from _Process).
+    /// Appends every queued match of the current search epoch to the results
+    /// table immediately; stale-epoch matches from detached searches are
+    /// discarded.
+    /// </summary>
+    public void DrainStreamedMatches()
+    {
+        while (_pendingMatches.TryDequeue(out var pending))
+        {
+            if (pending.Epoch != _searchEpoch)
+            {
+                continue;
+            }
+
+            _streamResults?.Add(pending.Match);
+            _resultsList.AddChild(BuildResultRow(pending.Match));
+            _resultCountLabel.Text = Localization.F("{0} matches", _lastResults.Count);
+        }
+
+        Interlocked.Exchange(ref _drainScheduled, 0);
+    }
+
+    /// <summary>
+    /// Cancels the running search and detaches the UI from it: late engine
+    /// emissions are filtered by the epoch, so the caller can safely rebuild
+    /// or clear the results table right after this returns.
+    /// </summary>
+    private void DetachActiveSearch()
+    {
+        if (_searchTask == null)
+        {
+            return;
+        }
+
+        CancelSearch();
+        _searchTask = null;
+        _searchCancellation?.Dispose();
+        _searchCancellation = null;
+        _searchEpoch++;
+        _pendingMatches.Clear();
+        _streamResults = null;
+        RestoreSearchUi();
     }
 
     private void CancelSearch()
@@ -700,6 +819,9 @@ public partial class SeedSearchOverlay : CanvasLayer
 
     private void InspectSeed()
     {
+        // Presenting a single-seed preview replaces the table, so a running
+        // streamed search is detached instead of mixing its rows in later.
+        DetachActiveSearch();
         var seed = _inspectInput.Text.Trim();
         if (seed.Length == 0)
         {
@@ -741,22 +863,82 @@ public partial class SeedSearchOverlay : CanvasLayer
     private void ApplyResults(IReadOnlyList<SeedMatch> results)
     {
         _lastResults = results;
-        _searchButton.Disabled = false;
-        _cancelButton.Disabled = true;
+        // While a streamed search is running, this rebuild only re-renders
+        // the current partial list (for example when toggling spoilers);
+        // terminal state such as buttons and completion copy belongs to the
+        // search-finished path.
+        var searchRunning = _searchTask != null;
+        if (!searchRunning)
+        {
+            _searchButton.Disabled = false;
+            _cancelButton.Disabled = true;
+            _progressLabel.Text = Localization.T("search complete");
+            _statsLabel.Text = BuildSearchStats(_lastProgress, results.Count, _searchStopwatch.Elapsed.TotalSeconds);
+        }
+
         _resultCountLabel.Text = Localization.F("{0} matches", results.Count);
-        _progressLabel.Text = Localization.T("search complete");
-        _statsLabel.Text = BuildSearchStats(_lastProgress, results.Count, _searchStopwatch.Elapsed.TotalSeconds);
         ClearChildren(_resultsList);
 
         if (results.Count == 0)
         {
-            SetStatus("no seeds matched. remove or loosen a filter and search again.", MutedText);
+            if (!searchRunning)
+            {
+                SetStatus("no seeds matched. remove or loosen a filter and search again.", MutedText);
+            }
+
             return;
         }
 
         foreach (var result in results)
         {
             _resultsList.AddChild(BuildResultRow(result));
+        }
+
+        if (searchRunning)
+        {
+            return;
+        }
+
+        var hitMatchCap = _lastQuery != null && results.Count >= _lastQuery.StopAfter;
+        SetStatus(
+            hitMatchCap
+                ? Localization.T("stopped at the match cap")
+                : Localization.F("searched {0} candidates", _lastProgress.ToString("N0", CultureInfo.InvariantCulture)),
+            Accent);
+    }
+
+    /// <summary>
+    /// Ends a streamed search that ran to completion: the streamed rows are
+    /// already on screen, so only the terminal copy is refreshed. If the
+    /// stream and the engine's authoritative list ever diverge, fall back to
+    /// a full rebuild.
+    /// </summary>
+    private void FinalizeSearch(IReadOnlyList<SeedMatch> results)
+    {
+        _searchButton.Disabled = false;
+        _cancelButton.Disabled = true;
+
+        var streamed = (IReadOnlyList<SeedMatch>?)_streamResults ?? Array.Empty<SeedMatch>();
+        var identical = streamed.Count == results.Count;
+        for (var index = 0; identical && index < results.Count; index++)
+        {
+            identical = string.Equals(streamed[index].Seed, results[index].Seed, StringComparison.Ordinal);
+        }
+
+        if (!identical)
+        {
+            ApplyResults(results);
+            return;
+        }
+
+        _resultCountLabel.Text = Localization.F("{0} matches", results.Count);
+        _progressLabel.Text = Localization.T("search complete");
+        _statsLabel.Text = BuildSearchStats(_lastProgress, results.Count, _searchStopwatch.Elapsed.TotalSeconds);
+
+        if (results.Count == 0)
+        {
+            SetStatus("no seeds matched. remove or loosen a filter and search again.", MutedText);
+            return;
         }
 
         var hitMatchCap = _lastQuery != null && results.Count >= _lastQuery.StopAfter;
@@ -1312,7 +1494,7 @@ public partial class SeedSearchOverlay : CanvasLayer
 
     private void ClearBoard()
     {
-        CancelSearch();
+        DetachActiveSearch();
         _lastQuery = null;
         _lastResults = Array.Empty<SeedMatch>();
         _boardState = SearchTheSpireBoardState.Empty;
@@ -1343,7 +1525,7 @@ public partial class SeedSearchOverlay : CanvasLayer
 
     private void ClearResults()
     {
-        CancelSearch();
+        DetachActiveSearch();
         _lastQuery = null;
         _lastResults = Array.Empty<SeedMatch>();
         _lastProgress = 0;
@@ -1402,6 +1584,9 @@ public partial class SeedSearchOverlay : CanvasLayer
 
     private void OpenSavedSearch(SavedSearch saved)
     {
+        // Restoring a saved search replaces the table, so detach any running
+        // streamed search before its rows can interleave with the saved ones.
+        DetachActiveSearch();
         // The removed Ancient/Boss dropdowns could persist in old saved
         // queries; normalize them so a stale value cannot zero out a search.
         var query = saved.Query with { AncientFilter = "Any", BossFilter = "Any" };
