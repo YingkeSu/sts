@@ -211,10 +211,21 @@ public sealed class SeedSearchEngine
         return Random.Shared.NextInt64(safeLow, safeHigh + 1);
     }
 
+    /// <summary>
+    /// Scans candidates in parallel waves and returns the first StopAfter
+    /// matches in candidate-index order. When <paramref name="onMatch"/> is
+    /// supplied, it is invoked once per match, in that same deterministic
+    /// order, as soon as the wave that found the match merges — before the
+    /// search completes. The callback runs on a search worker thread: it must
+    /// be thread-safe and must never touch UI nodes; marshal to the main
+    /// thread at the call site (for example via a concurrent queue plus
+    /// CallDeferred). At most StopAfter callbacks are ever invoked.
+    /// </summary>
     public IReadOnlyList<SeedMatch> Search(
         SeedQuery query,
         CancellationToken cancellationToken,
-        Action<SearchProgress>? progress = null)
+        Action<SearchProgress>? progress = null,
+        Action<SeedMatch>? onMatch = null)
     {
         const long chunkSize = 1024;
 
@@ -234,6 +245,9 @@ public sealed class SeedSearchEngine
         // blocks in chunk order. A block never needs more than stopAfter local
         // matches, and the wave boundary gives deterministic early stopping
         // without changing which matches are the first stopAfter by index.
+        // The merge is also the streaming boundary: each match is handed to
+        // onMatch (on this worker thread) the moment it enters the ordered
+        // result list, so a consumer can render rows while the scan continues.
         for (long waveStart = 0; waveStart < totalChunks && results.Count < stopAfter; waveStart += workerCount)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -329,7 +343,13 @@ public sealed class SeedSearchEngine
             for (var chunk = 0; chunk < waveLength; chunk++)
             {
                 checkedTotal += waveChecked[chunk];
-                results.AddRange(waveMatches[chunk]);
+                var waveChunk = waveMatches[chunk];
+                for (var matchIndex = 0; matchIndex < waveChunk.Count && results.Count < stopAfter; matchIndex++)
+                {
+                    var match = waveChunk[matchIndex];
+                    results.Add(match);
+                    onMatch?.Invoke(match);
+                }
             }
 
             progress?.Invoke(new SearchProgress(checkedTotal, budget, Math.Min(results.Count, stopAfter)));

@@ -1249,6 +1249,107 @@ if (!canceled)
 
 Console.WriteLine("issue-1 parallel search parity/StopAfter/progress checks passed.");
 
+// Streaming search: onMatch must deliver each match exactly once, in
+// candidate-index order, while the search is still running; StopAfter and
+// cancellation still bound the stream, and the delivered sequence must equal
+// both the final return value and the non-streaming batch result.
+var streamedSeeds = new List<string>();
+var streamedMatches = engine.Search(
+    issue1Query,
+    CancellationToken.None,
+    null,
+    match => streamedSeeds.Add(match.Seed));
+if (streamedSeeds.Count != issue1Query.StopAfter ||
+    streamedMatches.Count != issue1Query.StopAfter ||
+    !streamedSeeds.SequenceEqual(streamedMatches.Select(match => match.Seed)) ||
+    !streamedSeeds.SequenceEqual(parallelMatches.Select(match => match.Seed)))
+{
+    throw new InvalidOperationException(
+        "Streaming search did not deliver every match exactly once in candidate order.");
+}
+
+var combinedProgress = new List<SearchProgress>();
+var combinedStream = new List<SeedMatch>();
+var combinedMatches = engine.Search(
+    issue1Query with { MaxCandidates = 20_000 },
+    CancellationToken.None,
+    combinedProgress.Add,
+    combinedStream.Add);
+if (combinedStream.Count != combinedMatches.Count ||
+    combinedProgress.Count == 0 ||
+    combinedProgress[^1].MatchCount != combinedStream.Count ||
+    !combinedStream.Select(match => match.Seed).SequenceEqual(streamedSeeds))
+{
+    throw new InvalidOperationException("Streaming search diverged from progress reporting or the batch result.");
+}
+
+// A slow consumer must observe matches before Search returns; otherwise the
+// API regressed to end-of-search batching.
+var liveSeeds = new List<string>();
+var liveGate = new object();
+var liveQuery = issue1Query with { StopAfter = 6, MaxCandidates = 20_000 };
+var liveTask = Task.Run(() => engine.Search(
+    liveQuery,
+    CancellationToken.None,
+    null,
+    match =>
+    {
+        Thread.Sleep(25);
+        lock (liveGate)
+        {
+            liveSeeds.Add(match.Seed);
+        }
+    }));
+var sawMatchBeforeCompletion = false;
+var liveWatch = System.Diagnostics.Stopwatch.StartNew();
+while (liveWatch.Elapsed < TimeSpan.FromSeconds(30) && !liveTask.IsCompleted)
+{
+    int liveCount;
+    lock (liveGate)
+    {
+        liveCount = liveSeeds.Count;
+    }
+
+    if (liveCount > 0 && liveCount < liveQuery.StopAfter && !liveTask.IsCompleted)
+    {
+        sawMatchBeforeCompletion = true;
+        break;
+    }
+
+    Thread.Sleep(2);
+}
+
+if (!liveTask.Wait(TimeSpan.FromSeconds(30)) ||
+    !sawMatchBeforeCompletion ||
+    liveSeeds.Count != liveQuery.StopAfter ||
+    !liveSeeds.SequenceEqual(liveTask.Result.Select(match => match.Seed)))
+{
+    throw new InvalidOperationException(
+        "Streaming search only delivered results after the whole search completed.");
+}
+
+var canceledStreamCount = 0;
+var canceledStreamed = false;
+try
+{
+    engine.Search(
+        issue1Query with { MaxCandidates = 1 },
+        canceledToken,
+        null,
+        _ => Interlocked.Increment(ref canceledStreamCount));
+}
+catch (OperationCanceledException)
+{
+    canceledStreamed = true;
+}
+
+if (!canceledStreamed || canceledStreamCount != 0)
+{
+    throw new InvalidOperationException("Streaming search did not honor cancellation.");
+}
+
+Console.WriteLine("streaming search order/incremental/StopAfter/cancellation checks passed.");
+
 var benchBase = new SeedQuery(
     SeedBranch.PublicBeta,
     GameApiVersion: SeedSearchEngine.PinnedGameApiVersion,
