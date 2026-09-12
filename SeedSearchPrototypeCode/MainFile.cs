@@ -1,6 +1,8 @@
+using System.Reflection;
 using Godot;
 using MegaCrit.Sts2.Core.Logging;
 using MegaCrit.Sts2.Core.Modding;
+using STS2RitsuLib.Interop;
 using StsLogger = MegaCrit.Sts2.Core.Logging.Logger;
 
 namespace SeedSearchPrototype;
@@ -14,6 +16,8 @@ public static class MainFile
 
     public static void Initialize()
     {
+        ModTypeDiscoveryHub.RegisterModAssembly(ModId, Assembly.GetExecutingAssembly());
+
         var tree = Engine.GetMainLoop() as SceneTree;
         if (tree?.Root == null)
         {
@@ -22,6 +26,6 @@ public static class MainFile
         }
 
         tree.Root.CallDeferred("add_child", new SeedSearchOverlay());
-        Logger.Info("Seed Search loaded. Use the Seed Search button in the lower-right corner.");
+        Logger.Info("Seed Search loaded. Press F2 to show the launcher.");
     }
 }

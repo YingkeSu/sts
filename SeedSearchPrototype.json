@@ -8,7 +8,8 @@
   "has_pck": false,
   "has_dll": true,
   "dependencies": [
-    {"id": "BaseLib", "min_version": "3.3.0"}
+    {"id": "BaseLib", "min_version": "3.3.0"},
+    {"id": "STS2-RitsuLib"}
   ],
   "affects_gameplay": true
 }

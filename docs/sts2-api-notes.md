@@ -12,6 +12,10 @@
 - 通过 `Engine.GetMainLoop() as SceneTree` 拿到主循环，再用
   `tree.Root.CallDeferred("add_child", overlay)` 挂载全局 UI；初始化时不能假设
   任何游戏画面已经打开。
+- RitsuLib 集成：在初始化入口调用
+  `ModTypeDiscoveryHub.RegisterModAssembly(ModId, Assembly.GetExecutingAssembly())`
+  注册当前程序集；manifest 增加依赖对象 `{"id": "STS2-RitsuLib"}`，构建直接引用本机
+  RitsuLib variant DLL。
 - `MegaCrit.Sts2.Core.Logging.Logger` 与 `Godot.Logger` 同名冲突，必须别名：
   `using StsLogger = MegaCrit.Sts2.Core.Logging.Logger;`。日志写入
   `logs/godot.log`，统一带 Mod ID 前缀。
@@ -37,6 +41,8 @@
 - 全屏 shell `Control` 必须设置
   `MouseFilter = Control.MouseFilterEnum.Ignore`；只有可见遮罩
   `ColorRect` 和启动按钮接收输入。隐藏的 shell 若保持默认 `Stop` 会冻结整个游戏 UI。
+- 右下角入口默认隐藏，`_UnhandledKeyInput` 监听 F2 切换入口显隐；面板打开时按 F2
+  关闭并隐藏入口。
 - `Task.Run` 搜索完成后先检查 `IsCanceled`/`IsFaulted`，再
   `GetAwaiter().GetResult()`，并且每条终止路径都要恢复 Search/Cancel 按钮状态。
 

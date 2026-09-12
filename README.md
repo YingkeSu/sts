@@ -51,7 +51,7 @@ dotnet build SeedSearchPrototype.csproj -p:InstallMod=true -p:Sts2ModWorkshopId=
 <SteamLibrary>\steamapps\workshop\content\2868840\<WorkshopId>\SeedSearchPrototype\
 ```
 
-`Sts2PathDiscovery.props` 会按 OS 探测 Steam 库：Windows 使用 `data_sts2_windows_x86_64` 下的 `sts2.dll` 与 `0Harmony.dll`，并直接引用已安装的 BaseLib（Workshop item `3737335127`），不再依赖 NuGet 包。可用环境变量 `STS2_GAME_PATH`、`STS2_STEAM_LIBRARY`、`STS2_BASELIB_PATH`，或构建参数 `-p:Sts2GamePath=...`、`-p:BaseLibPath=...`、`-p:ModsPath=...` 覆盖探测结果。
+`Sts2PathDiscovery.props` 会按 OS 探测 Steam 库：Windows 使用 `data_sts2_windows_x86_64` 下的 `sts2.dll` 与 `0Harmony.dll`，并直接引用已安装的 BaseLib（Workshop item `3737335127`）与 RitsuLib variant（Workshop item `3747602295`，默认 `lib/0.110.0/STS2-RitsuLib.dll`），不再依赖 NuGet 包。可用环境变量 `STS2_GAME_PATH`、`STS2_STEAM_LIBRARY`、`STS2_BASELIB_PATH`、`STS2_RITSULIB_PATH`，或构建参数 `-p:Sts2GamePath=...`、`-p:BaseLibPath=...`、`-p:RitsuLibPath=...`、`-p:ModsPath=...` 覆盖探测结果。
 
 macOS（Apple Silicon）安装目标保持：
 
@@ -65,4 +65,4 @@ SlayTheSpire2.app/Contents/MacOS/mods/SeedSearchPrototype/
 
 ## 使用
 
-重启游戏后，右下角会出现 `Seed Search` 按钮。打开后可以搜索或检查种子，保存的搜索会写入 Godot 的用户数据目录；搜索接口与 UI 已独立，后续可以在不改页面的情况下替换为按游戏版本校验过的 RNG 实现。
+重启游戏后，右下角 `Seed Search` 入口默认隐藏；按 F2 显示/隐藏入口。打开后可以搜索或检查种子，保存的搜索会写入 Godot 的用户数据目录；搜索接口与 UI 已独立，后续可以在不改页面的情况下替换为按游戏版本校验过的 RNG 实现。

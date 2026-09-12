@@ -168,10 +168,36 @@ public partial class SeedSearchOverlay : CanvasLayer
         }
     }
 
+    public override void _UnhandledKeyInput(InputEvent @event)
+    {
+        if (@event is not InputEventKey key || !key.Pressed || key.Echo || key.Keycode != Key.F2)
+        {
+            return;
+        }
+
+        if (_pickerDialog.Visible)
+        {
+            return;
+        }
+
+        if (_backdrop.Visible)
+        {
+            _backdrop.Visible = false;
+            _launcherButton.Visible = false;
+        }
+        else
+        {
+            _launcherButton.Visible = !_launcherButton.Visible;
+        }
+
+        GetViewport().SetInputAsHandled();
+    }
+
     private void BuildLauncher()
     {
         _launcherButton = new Button
         {
+            Visible = false,
             Text = Localization.T("Seed Search"),
             TooltipText = Localization.T("Open the seed search board"),
             FocusMode = Control.FocusModeEnum.All,

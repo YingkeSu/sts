@@ -11,9 +11,11 @@
     <Sts2GamePath Condition="'$(Sts2GamePath)' == ''">$(STS2_GAME_PATH)</Sts2GamePath>
     <Sts2SteamLibrary Condition="'$(Sts2SteamLibrary)' == ''">$(STS2_STEAM_LIBRARY)</Sts2SteamLibrary>
     <BaseLibPath Condition="'$(BaseLibPath)' == ''">$(STS2_BASELIB_PATH)</BaseLibPath>
+    <RitsuLibPath Condition="'$(RitsuLibPath)' == ''">$(STS2_RITSULIB_PATH)</RitsuLibPath>
     <Sts2AppId>2868840</Sts2AppId>
     <Sts2ModWorkshopId Condition="'$(Sts2ModWorkshopId)' == ''"></Sts2ModWorkshopId>
     <Sts2BaseLibWorkshopId>3737335127</Sts2BaseLibWorkshopId>
+    <Sts2RitsuLibWorkshopId>3747602295</Sts2RitsuLibWorkshopId>
   </PropertyGroup>
 
   <Choose>
@@ -27,6 +29,7 @@
         <Sts2DataDir Condition="'$(Sts2GamePath)' != ''">$(Sts2GamePath)\data_sts2_windows_x86_64</Sts2DataDir>
         <Sts2SteamLibrary Condition="'$(Sts2SteamLibrary)' == '' and '$(Sts2GamePath)' != ''">$([System.IO.Path]::GetFullPath('$(Sts2GamePath)\..\..\..'))</Sts2SteamLibrary>
         <BaseLibPath Condition="'$(BaseLibPath)' == '' and '$(Sts2SteamLibrary)' != ''">$(Sts2SteamLibrary)\steamapps\workshop\content\$(Sts2AppId)\$(Sts2BaseLibWorkshopId)\BaseLib\BaseLib.dll</BaseLibPath>
+        <RitsuLibPath Condition="'$(RitsuLibPath)' == '' and '$(Sts2SteamLibrary)' != ''">$(Sts2SteamLibrary)\steamapps\workshop\content\$(Sts2AppId)\$(Sts2RitsuLibWorkshopId)\lib\0.110.0\STS2-RitsuLib.dll</RitsuLibPath>
         <ModsPath Condition="'$(ModsPath)' == '' and '$(Sts2ModWorkshopId)' != '' and '$(Sts2SteamLibrary)' != ''">$(Sts2SteamLibrary)\steamapps\workshop\content\$(Sts2AppId)\$(Sts2ModWorkshopId)\</ModsPath>
       </PropertyGroup>
     </When>
@@ -36,6 +39,7 @@
         <Sts2DataDir Condition="'$(Sts2GamePath)' != ''">$(Sts2GamePath)/SlayTheSpire2.app/Contents/Resources/data_sts2_macos_arm64</Sts2DataDir>
         <Sts2SteamLibrary Condition="'$(Sts2SteamLibrary)' == ''">/Users/suyingke/Library/Application Support/Steam</Sts2SteamLibrary>
         <BaseLibPath Condition="'$(BaseLibPath)' == ''">$(Sts2SteamLibrary)/steamapps/workshop/content/$(Sts2AppId)/$(Sts2BaseLibWorkshopId)/BaseLib/BaseLib.dll</BaseLibPath>
+        <RitsuLibPath Condition="'$(RitsuLibPath)' == ''">$(Sts2SteamLibrary)/steamapps/workshop/content/$(Sts2AppId)/$(Sts2RitsuLibWorkshopId)/lib/0.110.0/STS2-RitsuLib.dll</RitsuLibPath>
         <ModsPath Condition="'$(ModsPath)' == ''">$(Sts2GamePath)/SlayTheSpire2.app/Contents/MacOS/mods/</ModsPath>
       </PropertyGroup>
     </Otherwise>

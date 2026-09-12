@@ -72,6 +72,8 @@ public sealed partial class MapPreview : Control
                 box.X / Mathf.Max(textureSize.X, 1f),
                 box.Y / Mathf.Max(textureSize.Y, 1f));
             var drawSize = textureSize * fit;
+            MainFile.Logger.Info(
+                $"MapPreview {node.Kind} tex={textureSize} box={box} draw={drawSize}");
             AddChild(new TextureRect
             {
                 Texture = icon,
