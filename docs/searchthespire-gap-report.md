@@ -49,5 +49,15 @@
 
 ## 验证记录
 
+- 地图预览图标（2026-09-12，游戏 v0.111.0）：逐类对照游戏运行时输出确认
+  `monster/elite/rest/shop/treasure/unknown` 全部命中 `ui_atlas.sprites/map/icons/*`
+  （128×128）、Ancient 命中 `packed/map/ancients/ancient_node_neow.png`（278×278）、
+  静态首领命中 `<BossNodePath>.png` 占位图，路径全部存在。真正的缺陷是
+  `TextureRect` 的 `ExpandMode` 写在 `Texture/Size` 之后，默认 `KeepSize` 把
+  `Size` 抬回贴图原始尺寸（128/278/350px），导致图标溢出 44px 网格；把
+  `ExpandMode`/`StretchMode` 前置后，运行时 rect 变为 25px（普通）/34px（Boss/Ancient），
+  与游戏 92px/150px 列宽的密度和 SearchTheSpire 的 25px 节点图标一致。
+  遗留差距：动画（Spine）首领（Ceremonial Beast/Queen/The Insatiable）没有静态
+  地图贴图，预览回退到 `ui/run_history/<boss>.png`，与游戏的骨骼动画节点不完全一致。
 - 纯模型测试：宽松 `Any/Any` 查询返回结果；旧 `任意/任意` 查询兼容；`Ascension=20` 会收敛到 A10；父子可见性和分组顺序有回归断言。
 - 游戏内 smoke test：Steam 启动 STS2 后打开右下角入口；截图确认遮罩后仍有游戏主菜单背景；宽松扫描显示 20 个结果；中文/English 切换成功；`涅奥之骨 → 大型胶囊` 的子项紧邻父项，选择角色后角色专属项就地解锁。
