@@ -12,7 +12,12 @@ public sealed partial class MapPreview : Control
     private const float CellWidth = 44f;
     private const float RowHeight = 42f;
     private const float Pad = 16f;
-    private const float PreviewScale = 0.35f / 4f;
+    // The game draws a 92px normal-node icon on a 150px column at 1080p
+    // (~0.61 of the spacing), and SearchTheSpire uses a 25px node icon.
+    // Keep that density instead of shrinking the icons into specks; cap the
+    // large boss/ancient boxes so they stay inside their cell.
+    private const float NormalIconPixels = 25f;
+    private const float MaxIconPixels = 34f;
     private static readonly Color EdgeColor = new("888888");
     private static readonly Color GlyphColor = new("ffffff");
 
@@ -62,26 +67,30 @@ public sealed partial class MapPreview : Control
             }
 
             // Mirror the game's per-kind icon boxes (normal 92x92,
-            // boss 374x350, ancient 208x208) at a compact preview scale and
-            // fit the actual texture into that box. Keeping the drawn rect
-            // the same aspect as the texture centers the visible art exactly
-            // on the node instead of drawing atlas regions at native size.
-            var box = DisplayBox(node.Kind) * PreviewScale;
+            // boss 374x350, ancient 208x208) scaled to the preview grid and
+            // fit the actual texture into that box. Keeping the drawn rect the
+            // same aspect as the texture centers the visible art exactly on
+            // the node.
+            //
+            // ExpandMode/StretchMode must be assigned before Texture/Size:
+            // the default ExpandMode.KeepSize clamps Size up to the texture's
+            // native size, which drew the atlas regions at 128px / 278px /
+            // 350px and made every icon overflow the compact grid. That is
+            // why the earlier preview-scale changes never changed the result.
+            var box = TargetBox(node.Kind);
             var textureSize = new Vector2(icon.GetWidth(), icon.GetHeight());
             var fit = Mathf.Min(
                 box.X / Mathf.Max(textureSize.X, 1f),
                 box.Y / Mathf.Max(textureSize.Y, 1f));
             var drawSize = textureSize * fit;
-            MainFile.Logger.Info(
-                $"MapPreview {node.Kind} tex={textureSize} box={box} draw={drawSize}");
             AddChild(new TextureRect
             {
-                Texture = icon,
-                Position = _positions[index] - drawSize / 2f,
-                Size = drawSize,
                 ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
                 StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
                 MouseFilter = MouseFilterEnum.Ignore,
+                Texture = icon,
+                Position = _positions[index] - drawSize / 2f,
+                Size = drawSize,
             });
         }
     }
@@ -125,7 +134,7 @@ public sealed partial class MapPreview : Control
                 ? value
                 : (Color: new Color("000000"), Glyph: "·");
             var center = _positions[index];
-            var box = DisplayBox(node.Kind) * PreviewScale;
+            var box = TargetBox(node.Kind);
             var side = Mathf.Min(box.X, box.Y);
             DrawCircle(center, side * 0.24f, style.Color);
 
@@ -142,13 +151,23 @@ public sealed partial class MapPreview : Control
         }
     }
 
-    private static Vector2 DisplayBox(string kind) =>
-        (kind switch
+    private static Vector2 TargetBox(string kind)
+    {
+        var box = kind switch
         {
             "boss" => new Vector2(374f, 350f),
             "ancient" => new Vector2(208f, 208f),
             _ => new Vector2(92f, 92f),
-        });
+        };
+        var scale = NormalIconPixels / 92f;
+        var largest = Mathf.Max(box.X, box.Y) * scale;
+        if (largest > MaxIconPixels)
+        {
+            scale *= MaxIconPixels / largest;
+        }
+
+        return box * scale;
+    }
 
     private void DrawDashedLine(Vector2 from, Vector2 to, Color color, float width, float dash, float gap)
     {
